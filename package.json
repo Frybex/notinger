@@ -1,0 +1,33 @@
+{
+  "name": "notinger",
+  "version": "1.0.0",
+  "description": "Schémas et notes visuelles 100% locales, propulsés par Excalidraw.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build",
+    "app:install": "tauri build --bundles app && ditto src-tauri/target/release/bundle/macos/Notinger.app /Applications/Notinger.app && echo 'Notinger installé dans /Applications'",
+    "icon": "python3 scripts/make-icon.py && tauri icon build/icon.png"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.2"
+  }
+}
