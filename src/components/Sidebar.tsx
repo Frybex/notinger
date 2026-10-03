@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import Icon from './Icon'
 import type { DrawingMeta, FolderInfo, SaveState } from '../lib/api'
-import { revealLabel } from '../lib/platform'
+import { revealLabel, shortcuts } from '../lib/platform'
 
 type SidebarProps = {
   metas: DrawingMeta[]
@@ -299,7 +299,8 @@ export default function Sidebar({
       ? folders.find((folder) => folder.path === contextMenu.id) ?? null
       : null
 
-  const themeTitle = theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode nuit (⌘⇧D)'
+  const themeTitle =
+    theme === 'dark' ? 'Passer en mode clair' : `Passer en mode nuit (${shortcuts.toggleTheme})`
 
   const renderDrawing = (meta: DrawingMeta, showFolder = false) => (
     <div
@@ -358,7 +359,7 @@ export default function Sidebar({
           type="button"
           className="panel-toggle"
           onClick={onToggle}
-          title="Afficher la bibliothèque (⌘B)"
+          title={`Afficher la bibliothèque (${shortcuts.toggleSidebar})`}
         >
           <Icon name="panelRight" size={17} />
         </button>
@@ -384,14 +385,19 @@ export default function Sidebar({
               type="button"
               className="panel-toggle inline"
               onClick={onToggle}
-              title="Replier la bibliothèque (⌘B)"
+              title={`Replier la bibliothèque (${shortcuts.toggleSidebar})`}
             >
               <Icon name="panelRightChevron" size={17} />
             </button>
           </span>
         </div>
         <div className="header-actions">
-          <button type="button" className="primary" onClick={onNew} title="Nouveau schéma (⌘N)">
+          <button
+            type="button"
+            className="primary"
+            onClick={onNew}
+            title={`Nouveau schéma (${shortcuts.newDrawing})`}
+          >
             <Icon name="plus" size={14} />
             Nouveau
           </button>
@@ -399,7 +405,7 @@ export default function Sidebar({
             type="button"
             className="ghost icon-only"
             onClick={onImport}
-            title="Importer (⌘O)"
+            title={`Importer (${shortcuts.import})`}
           >
             <Icon name="import" size={15} />
           </button>
@@ -407,7 +413,7 @@ export default function Sidebar({
             type="button"
             className="ghost icon-only"
             onClick={startFolderDraft}
-            title="Nouveau dossier (⌘⇧N)"
+            title={`Nouveau dossier (${shortcuts.newFolder})`}
           >
             <Icon name="folderPlus" size={15} />
           </button>

@@ -14,6 +14,7 @@ import { confirm, open as openDialog } from '@tauri-apps/plugin-dialog'
 import Sidebar from './components/Sidebar'
 import Icon from './components/Icon'
 import { attachWheelZoom, setWheelDevice } from './lib/wheelZoom'
+import { isMac } from './lib/platform'
 import { api, type DrawingMeta, type FolderInfo, type SaveState } from './lib/api'
 import '@excalidraw/excalidraw/index.css'
 
@@ -567,28 +568,53 @@ export default function App() {
     }
   }, [doSave])
 
-  useEffect(() => {
-    const onMenu = (payload: string) => {
-      if (payload === 'new') void createDrawing()
-      else if (payload === 'import') void importFiles()
-      else if (payload === 'new_folder') {
+  const runCommand = useCallback(
+    (command: string) => {
+      if (command === 'new') void createDrawing()
+      else if (command === 'import') void importFiles()
+      else if (command === 'new_folder') {
         setSidebarOpen(true)
         setNewFolderSignal((signal) => signal + 1)
-      } else if (payload === 'toggle_sidebar') toggleSidebar()
-      else if (payload === 'toggle_theme') toggleTheme()
-      else if (payload === 'save') {
+      } else if (command === 'toggle_sidebar') toggleSidebar()
+      else if (command === 'toggle_theme') toggleTheme()
+      else if (command === 'save') {
         if (timerRef.current !== null) {
           window.clearTimeout(timerRef.current)
           timerRef.current = null
         }
         void doSave({ force: true, thumb: true })
-      } else if (payload === 'open_dir') void api.openLibraryDir()
-    }
-    const pending = listen<string>('menu', ({ payload }) => onMenu(payload))
+      } else if (command === 'open_dir') void api.openLibraryDir()
+    },
+    [createDrawing, doSave, importFiles, toggleSidebar, toggleTheme]
+  )
+
+  useEffect(() => {
+    const pending = listen<string>('menu', ({ payload }) => runCommand(payload))
     return () => {
       void pending.then((unsubscribe) => unsubscribe())
     }
-  }, [createDrawing, doSave, importFiles, toggleSidebar, toggleTheme])
+  }, [runCommand])
+
+  useEffect(() => {
+    if (isMac) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return
+      const key = event.key.toLowerCase()
+      let command: string | null = null
+      if (event.shiftKey) {
+        if (key === 'n') command = 'new_folder'
+        else if (key === 'd') command = 'toggle_theme'
+      } else if (key === 'n') command = 'new'
+      else if (key === 'o') command = 'import'
+      else if (key === 's') command = 'save'
+      else if (key === 'b') command = 'toggle_sidebar'
+      if (!command) return
+      event.preventDefault()
+      runCommand(command)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [runCommand])
 
   return (
     <div className="app" data-theme={theme}>

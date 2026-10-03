@@ -11,8 +11,8 @@
     "tauri": "tauri",
     "app:dev": "tauri dev",
     "app:build": "tauri build",
-    "app:install": "tauri build --bundles app && rm -rf /Applications/Notinger.app && ditto src-tauri/target/release/bundle/macos/Notinger.app /Applications/Notinger.app && rm -rf src-tauri/target/release/bundle/macos/Notinger.app && killall Dock && echo 'Notinger installé dans /Applications (doublon Launchpad supprimé)'",
-    "icon": "python3 scripts/make-icon.py && tauri icon build/icon.png"
+    "app:install": "node scripts/app-install.mjs",
+    "icon": "node scripts/run-python.mjs scripts/make-icon.py && tauri icon build/icon.png"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",

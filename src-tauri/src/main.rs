@@ -16,8 +16,9 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use serde::Serialize;
+#[cfg(target_os = "macos")]
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
     AppHandle, Emitter, Manager, RunEvent, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
@@ -840,9 +841,9 @@ fn flush_complete(app: AppHandle) {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn build_menu(app: &tauri::App) -> tauri::Result<()> {
     let handle = app.handle();
-    #[cfg(target_os = "macos")]
     let app_menu = Some(
         SubmenuBuilder::new(handle, "Notinger")
             .item(&PredefinedMenuItem::about(
@@ -866,8 +867,6 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
             )?)
             .build()?,
     );
-    #[cfg(not(target_os = "macos"))]
-    let app_menu: Option<tauri::menu::Submenu<tauri::Wry>> = None;
     let file_menu_builder = SubmenuBuilder::new(handle, "Fichier")
         .item(
             &MenuItemBuilder::with_id("new", "Nouveau schéma")
@@ -891,16 +890,7 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
         )
         .separator()
         .item(&MenuItemBuilder::with_id("open_dir", "Afficher le dossier des fichiers").build(handle)?);
-    #[cfg(target_os = "macos")]
     let file_menu = file_menu_builder.build()?;
-    #[cfg(not(target_os = "macos"))]
-    let file_menu = file_menu_builder
-        .separator()
-        .item(&PredefinedMenuItem::quit(
-            handle,
-            Some("Quitter Notinger"),
-        )?)
-        .build()?;
     let edit_menu = SubmenuBuilder::new(handle, "Édition")
         .item(&PredefinedMenuItem::undo(handle, Some("Annuler"))?)
         .item(&PredefinedMenuItem::redo(handle, Some("Rétablir"))?)
@@ -956,6 +946,30 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
+fn build_menu(_app: &tauri::App) -> tauri::Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn harden_webview(window: &WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows_core::Interface;
+
+    let _ = window.with_webview(|webview| {
+        let Ok(core) = (unsafe { webview.controller().CoreWebView2() }) else {
+            return;
+        };
+        let Ok(settings) = (unsafe { core.Settings() }) else {
+            return;
+        };
+        let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() else {
+            return;
+        };
+        let _ = unsafe { settings3.SetAreBrowserAcceleratorKeysEnabled(false) };
+    });
+}
+
 #[tauri::command]
 fn scroll_device_kind() -> Option<&'static str> {
     scroll_device::current()
@@ -988,6 +1002,10 @@ fn main() {
         .setup(|app| {
             build_menu(app)?;
             scroll_device::install(app.handle());
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                harden_webview(&window);
+            }
             let paths = command_line_paths();
             if !paths.is_empty() {
                 open_paths(app.handle(), paths);
