@@ -64,6 +64,7 @@ export default function App() {
   )
   const [libraryDir, setLibraryDir] = useState('')
   const [newFolderSignal, setNewFolderSignal] = useState(0)
+  const [saveToastKey, setSaveToastKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   const theme = themeMode === 'system' ? systemTheme : themeMode
@@ -159,8 +160,8 @@ export default function App() {
     async (options: { force?: boolean; thumb?: boolean } = {}) => {
       const id = currentIdRef.current
       const current = liveRef.current
-      if (!id || !current) return
-      if (!dirtyRef.current && !options.force) return
+      if (!id || !current) return false
+      if (!dirtyRef.current && !options.force) return false
       dirtyRef.current = false
       setSaveState('saving')
       try {
@@ -174,10 +175,12 @@ export default function App() {
           lastThumbRef.current = Date.now()
           void makeThumbnail(id, current)
         }
+        return true
       } catch (cause) {
         dirtyRef.current = true
         setSaveState('error')
         setError(`Enregistrement impossible : ${String(cause)}`)
+        return false
       }
     },
     [makeThumbnail]
@@ -582,7 +585,9 @@ export default function App() {
           window.clearTimeout(timerRef.current)
           timerRef.current = null
         }
-        void doSave({ force: true, thumb: true })
+        void doSave({ force: true, thumb: true }).then((saved) => {
+          if (saved) setSaveToastKey((key) => key + 1)
+        })
       } else if (command === 'open_dir') void api.openLibraryDir()
     },
     [createDrawing, doSave, importFiles, toggleSidebar, toggleTheme]
@@ -686,6 +691,17 @@ export default function App() {
         onMoveDrawing={(id, folder) => void moveDrawing(id, folder)}
         onOpenDir={() => void api.openLibraryDir()}
       />
+      {saveToastKey > 0 ? (
+        <div
+          key={saveToastKey}
+          className="save-toast"
+          role="status"
+          onAnimationEnd={() => setSaveToastKey(0)}
+        >
+          <Icon name="check" size={13} />
+          Enregistré
+        </div>
+      ) : null}
       {error ? (
         <div className="toast" role="alert">
           <span>{error}</span>

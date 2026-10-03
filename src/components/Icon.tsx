@@ -63,6 +63,7 @@ const shapes: Record<string, ReactNode> = {
       <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
     </>
   ),
+  check: <path d="m5 12.5 4.5 4.5L19 7" />,
   chevronLeft: <path d="m14.5 6.5-5 5.5 5 5.5" />,
   chevronRight: <path d="m9.5 6.5 5 5.5-5 5.5" />,
   moon: <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />,
