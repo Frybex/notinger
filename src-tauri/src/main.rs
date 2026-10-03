@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod scroll_device;
+
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -20,6 +23,7 @@ use tauri::{
 
 const EXT: &str = ".excalidraw";
 const THUMB_REL: &str = ".notinger/thumbnails";
+const COLORS_REL: &str = ".notinger/folders.json";
 const FLUSH_GRACE_MS: u64 = 1600;
 
 #[derive(Default)]
@@ -40,9 +44,18 @@ struct OpenGate {
 struct DrawingMeta {
     id: String,
     name: String,
+    folder: String,
     updated_at: u64,
     size: u64,
     thumbnail: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FolderInfo {
+    path: String,
+    name: String,
+    color: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -69,15 +82,62 @@ fn library_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn safe_id(id: &str) -> Result<String, String> {
-    let is_file_name = Path::new(id)
-        .file_name()
-        .map(|name| name == std::ffi::OsStr::new(id))
-        .unwrap_or(false);
-    if id.is_empty() || id.contains('\0') || !is_file_name {
+fn safe_rel(raw: &str) -> Result<String, String> {
+    if raw.is_empty() || raw.contains('\0') {
         return Err("Identifiant invalide".into());
     }
-    Ok(id.to_string())
+    let mut parts: Vec<&str> = Vec::new();
+    for part in raw.split('/') {
+        if part.is_empty()
+            || part == "."
+            || part == ".."
+            || part.starts_with('.')
+            || part.contains('\\')
+            || part.contains(':')
+        {
+            return Err("Identifiant invalide".into());
+        }
+        parts.push(part);
+    }
+    Ok(parts.join("/"))
+}
+
+fn safe_folder(raw: &str) -> Result<String, String> {
+    if raw.is_empty() {
+        return Ok(String::new());
+    }
+    safe_rel(raw).map_err(|_| "Dossier invalide".into())
+}
+
+fn split_folder(id: &str) -> (&str, &str) {
+    match id.rsplit_once('/') {
+        Some((folder, base)) => (folder, base),
+        None => ("", id),
+    }
+}
+
+fn drawing_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}{EXT}"))
+}
+
+fn thumbnail_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(THUMB_REL).join(format!("{id}.png"))
+}
+
+fn relative_id(root: &Path, path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(root).ok()?;
+    let mut parts = Vec::new();
+    for component in rel.components() {
+        match component {
+            std::path::Component::Normal(value) => parts.push(value.to_string_lossy().to_string()),
+            _ => return None,
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("/"))
+    }
 }
 
 fn sanitize_name(raw: &str) -> String {
@@ -95,18 +155,52 @@ fn sanitize_name(raw: &str) -> String {
     }
 }
 
-fn unique_id(dir: &Path, base: &str, ignore: Option<&str>) -> String {
+fn unique_id(dir: &Path, folder: &str, base: &str, ignore: Option<&str>) -> String {
+    let parent = if folder.is_empty() {
+        dir.to_path_buf()
+    } else {
+        dir.join(folder)
+    };
     let mut name = base.to_string();
     let mut index = 2;
-    while dir.join(format!("{name}{EXT}")).exists() && Some(name.as_str()) != ignore {
+    loop {
+        let candidate = if folder.is_empty() {
+            name.clone()
+        } else {
+            format!("{folder}/{name}")
+        };
+        if !parent.join(format!("{name}{EXT}")).exists() || Some(candidate.as_str()) == ignore {
+            return candidate;
+        }
         name = format!("{base} {index}");
         index += 1;
     }
-    name
+}
+
+fn unique_folder(dir: &Path, parent: &str, base: &str, ignore: Option<&str>) -> String {
+    let parent_path = if parent.is_empty() {
+        dir.to_path_buf()
+    } else {
+        dir.join(parent)
+    };
+    let mut name = base.to_string();
+    let mut index = 2;
+    loop {
+        let candidate = if parent.is_empty() {
+            name.clone()
+        } else {
+            format!("{parent}/{name}")
+        };
+        if !parent_path.join(&name).exists() || Some(candidate.as_str()) == ignore {
+            return candidate;
+        }
+        name = format!("{base} {index}");
+        index += 1;
+    }
 }
 
 fn meta_for(dir: &Path, id: &str) -> Result<DrawingMeta, String> {
-    let path = dir.join(format!("{id}{EXT}"));
+    let path = drawing_path(dir, id);
     let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
     let updated_at = metadata
         .modified()
@@ -114,33 +208,222 @@ fn meta_for(dir: &Path, id: &str) -> Result<DrawingMeta, String> {
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0);
-    let thumbnail = fs::read(dir.join(THUMB_REL).join(format!("{id}.png")))
+    let thumbnail = fs::read(thumbnail_path(dir, id))
         .ok()
         .map(|bytes| format!("data:image/png;base64,{}", B64.encode(bytes)));
+    let (folder, name) = split_folder(id);
     Ok(DrawingMeta {
         id: id.to_string(),
-        name: id.to_string(),
+        name: name.to_string(),
+        folder: folder.to_string(),
         updated_at,
         size: metadata.len(),
         thumbnail,
     })
 }
 
-fn list_metas(dir: &Path) -> Vec<DrawingMeta> {
-    let mut metas = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            if entry.path().is_file() && file_name.ends_with(EXT) {
-                let id = file_name.trim_end_matches(EXT).to_string();
-                if let Ok(meta) = meta_for(dir, &id) {
-                    metas.push(meta);
+fn collect_drawings(root: &Path, dir: &Path, metas: &mut Vec<DrawingMeta>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if file_name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_drawings(root, &path, metas);
+        } else if file_name.ends_with(EXT) {
+            if let Some(rel) = relative_id(root, &path) {
+                let id = rel.strip_suffix(EXT).unwrap_or(&rel).to_string();
+                if safe_rel(&id).is_ok() {
+                    if let Ok(meta) = meta_for(root, &id) {
+                        metas.push(meta);
+                    }
                 }
             }
         }
     }
+}
+
+fn list_metas(dir: &Path) -> Vec<DrawingMeta> {
+    let mut metas = Vec::new();
+    collect_drawings(dir, dir, &mut metas);
     metas.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     metas
+}
+
+fn colors_path(root: &Path) -> PathBuf {
+    root.join(COLORS_REL)
+}
+
+fn read_folder_colors(root: &Path) -> BTreeMap<String, String> {
+    fs::read_to_string(colors_path(root))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn write_folder_colors(root: &Path, colors: &BTreeMap<String, String>) -> Result<(), String> {
+    let path = colors_path(root);
+    if colors.is_empty() {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let data = serde_json::to_string_pretty(colors).map_err(|error| error.to_string())?;
+    fs::write(path, data).map_err(|error| error.to_string())
+}
+
+fn valid_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn set_folder_color_at(root: &Path, folder: &str, color: Option<&str>) -> Result<(), String> {
+    let folder = safe_rel(folder).map_err(|_| "Dossier invalide".to_string())?;
+    if !root.join(&folder).is_dir() {
+        return Err("Dossier introuvable".into());
+    }
+    let mut colors = read_folder_colors(root);
+    match color {
+        Some(value) if valid_color(value) => {
+            colors.insert(folder, value.to_lowercase());
+        }
+        Some(_) => return Err("Couleur invalide".into()),
+        None => {
+            colors.remove(&folder);
+        }
+    }
+    write_folder_colors(root, &colors)
+}
+
+fn collect_folders(
+    root: &Path,
+    dir: &Path,
+    colors: &BTreeMap<String, String>,
+    out: &mut Vec<FolderInfo>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if file_name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(rel) = relative_id(root, &path) {
+                if safe_rel(&rel).is_ok() {
+                    let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+                    let color = colors.get(&rel).cloned();
+                    out.push(FolderInfo { path: rel, name, color });
+                }
+            }
+            collect_folders(root, &path, colors, out);
+        }
+    }
+}
+
+fn list_folders_at(root: &Path) -> Vec<FolderInfo> {
+    let colors = read_folder_colors(root);
+    let mut folders = Vec::new();
+    collect_folders(root, root, &colors, &mut folders);
+    folders.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+    folders
+}
+
+fn create_folder_at(root: &Path, name: &str) -> Result<FolderInfo, String> {
+    let base = sanitize_name(name);
+    let path = unique_folder(root, "", &base, None);
+    fs::create_dir_all(root.join(&path)).map_err(|error| error.to_string())?;
+    let display = path.rsplit('/').next().unwrap_or(&path).to_string();
+    Ok(FolderInfo {
+        path,
+        name: display,
+        color: None,
+    })
+}
+
+fn rename_folder_at(root: &Path, folder: &str, new_name: &str) -> Result<FolderInfo, String> {
+    let folder = safe_rel(folder).map_err(|_| "Dossier invalide".to_string())?;
+    if !root.join(&folder).is_dir() {
+        return Err("Dossier introuvable".into());
+    }
+    let (parent, _) = split_folder(&folder);
+    let base = sanitize_name(new_name);
+    let new_id = unique_folder(root, parent, &base, Some(&folder));
+    if new_id != folder {
+        fs::rename(root.join(&folder), root.join(&new_id)).map_err(|error| error.to_string())?;
+        let old_thumbs = root.join(THUMB_REL).join(&folder);
+        if old_thumbs.exists() {
+            let new_thumbs = root.join(THUMB_REL).join(&new_id);
+            if let Some(parent) = new_thumbs.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::rename(old_thumbs, new_thumbs);
+        }
+        let colors = read_folder_colors(root);
+        let nested = format!("{folder}/");
+        let mut moved = colors.clone();
+        let mut changed = false;
+        for (key, value) in &colors {
+            if key == &folder {
+                moved.remove(key);
+                moved.insert(new_id.clone(), value.clone());
+                changed = true;
+            } else if let Some(rest) = key.strip_prefix(&nested) {
+                moved.remove(key);
+                moved.insert(format!("{new_id}/{rest}"), value.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            write_folder_colors(root, &moved)?;
+        }
+    }
+    let colors = read_folder_colors(root);
+    let display = new_id.rsplit('/').next().unwrap_or(&new_id).to_string();
+    Ok(FolderInfo {
+        color: colors.get(&new_id).cloned(),
+        path: new_id,
+        name: display,
+    })
+}
+
+fn move_drawing_at(root: &Path, id: &str, folder: &str) -> Result<DrawingMeta, String> {
+    let id = safe_rel(id).map_err(|_| "Identifiant invalide".to_string())?;
+    let folder = safe_folder(folder)?;
+    if !folder.is_empty() && !root.join(&folder).is_dir() {
+        return Err("Dossier introuvable".into());
+    }
+    if split_folder(&id).0 == folder {
+        return meta_for(root, &id);
+    }
+    let (_, base) = split_folder(&id);
+    let new_id = unique_id(root, &folder, base, Some(&id));
+    let target = if folder.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(&folder)
+    };
+    fs::create_dir_all(&target).map_err(|error| error.to_string())?;
+    fs::rename(drawing_path(root, &id), drawing_path(root, &new_id))
+        .map_err(|error| error.to_string())?;
+    let old_thumb = thumbnail_path(root, &id);
+    if old_thumb.exists() {
+        let new_thumb = thumbnail_path(root, &new_id);
+        if let Some(parent) = new_thumb.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::rename(old_thumb, new_thumb);
+    }
+    meta_for(root, &new_id)
 }
 
 fn create_main_window(app: &AppHandle) -> Option<WebviewWindow> {
@@ -200,6 +483,15 @@ fn import_or_match(dir: &Path, path: &Path) -> Option<String> {
         .or_else(|| file_name.strip_suffix(".json"))?
         .to_string();
 
+    if path.extension().map(|ext| ext == "excalidraw").unwrap_or(false) {
+        if let Some(rel) = relative_id(dir, path) {
+            let id = rel.strip_suffix(EXT).unwrap_or(&rel).to_string();
+            if safe_rel(&id).is_ok() {
+                return Some(id);
+            }
+        }
+    }
+
     if path.parent().map(|parent| parent == dir).unwrap_or(false) {
         return Some(stem);
     }
@@ -211,7 +503,7 @@ fn import_or_match(dir: &Path, path: &Path) -> Option<String> {
     }
 
     let base = sanitize_name(&stem);
-    let existing = dir.join(format!("{base}{EXT}"));
+    let existing = drawing_path(dir, &base);
     if let Ok(existing_content) = fs::read_to_string(&existing) {
         if let Ok(existing_value) = serde_json::from_str::<serde_json::Value>(&existing_content) {
             if existing_value.get("elements") == parsed.get("elements") {
@@ -220,8 +512,8 @@ fn import_or_match(dir: &Path, path: &Path) -> Option<String> {
         }
     }
 
-    let id = unique_id(dir, &base, None);
-    fs::write(dir.join(format!("{id}{EXT}")), content).ok()?;
+    let id = unique_id(dir, "", &base, None);
+    fs::write(drawing_path(dir, &id), content).ok()?;
     Some(id)
 }
 
@@ -296,6 +588,64 @@ fn list_drawings(app: AppHandle) -> Result<Vec<DrawingMeta>, String> {
 }
 
 #[tauri::command]
+fn list_folders(app: AppHandle) -> Result<Vec<FolderInfo>, String> {
+    Ok(list_folders_at(&library_dir(&app)?))
+}
+
+#[tauri::command]
+fn create_folder(app: AppHandle, name: String) -> Result<FolderInfo, String> {
+    create_folder_at(&library_dir(&app)?, &name)
+}
+
+#[tauri::command]
+fn rename_folder(app: AppHandle, path: String, new_name: String) -> Result<FolderInfo, String> {
+    rename_folder_at(&library_dir(&app)?, &path, &new_name)
+}
+
+#[tauri::command]
+fn set_folder_color(app: AppHandle, path: String, color: Option<String>) -> Result<(), String> {
+    set_folder_color_at(&library_dir(&app)?, &path, color.as_deref())
+}
+
+#[tauri::command]
+fn delete_folder(app: AppHandle, path: String) -> Result<(), String> {
+    let dir = library_dir(&app)?;
+    let folder = safe_folder(&path)?;
+    if folder.is_empty() {
+        return Err("Dossier invalide".into());
+    }
+    let target = dir.join(&folder);
+    if target.is_dir() && trash::delete(&target).is_err() {
+        fs::remove_dir_all(&target).map_err(|error| error.to_string())?;
+    }
+    let _ = fs::remove_dir_all(dir.join(THUMB_REL).join(&folder));
+    let mut colors = read_folder_colors(&dir);
+    let before = colors.len();
+    let nested = format!("{folder}/");
+    colors.retain(|key, _| key != &folder && !key.starts_with(&nested));
+    if colors.len() != before {
+        let _ = write_folder_colors(&dir, &colors);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn move_drawing(app: AppHandle, id: String, folder: Option<String>) -> Result<DrawingMeta, String> {
+    let dir = library_dir(&app)?;
+    move_drawing_at(&dir, &id, folder.as_deref().unwrap_or(""))
+}
+
+#[tauri::command]
+fn reveal_folder(app: AppHandle, path: String) -> Result<(), String> {
+    let dir = library_dir(&app)?;
+    let folder = safe_folder(&path)?;
+    if folder.is_empty() {
+        return open_in_file_manager(&dir).map_err(|error| error.to_string());
+    }
+    open_in_file_manager(&dir.join(&folder)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn library_info(app: AppHandle) -> Result<LibraryInfo, String> {
     let dir = library_dir(&app)?;
     Ok(LibraryInfo {
@@ -307,26 +657,39 @@ fn library_info(app: AppHandle) -> Result<LibraryInfo, String> {
 #[tauri::command]
 fn read_drawing(app: AppHandle, id: String) -> Result<String, String> {
     let dir = library_dir(&app)?;
-    let id = safe_id(&id)?;
-    fs::read_to_string(dir.join(format!("{id}{EXT}"))).map_err(|error| error.to_string())
+    let id = safe_rel(&id)?;
+    fs::read_to_string(drawing_path(&dir, &id)).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn write_drawing(app: AppHandle, id: String, data: String) -> Result<DrawingMeta, String> {
     let dir = library_dir(&app)?;
-    let id = safe_id(&id)?;
-    let file = dir.join(format!("{id}{EXT}"));
-    let tmp = dir.join(format!(".{id}{EXT}.tmp"));
+    let id = safe_rel(&id)?;
+    let file = drawing_path(&dir, &id);
+    let file_name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| format!("{id}{EXT}"));
+    let parent = file.parent().unwrap_or(&dir);
+    let tmp = parent.join(format!(".{file_name}.tmp"));
     fs::write(&tmp, &data).map_err(|error| error.to_string())?;
     fs::rename(&tmp, &file).map_err(|error| error.to_string())?;
     meta_for(&dir, &id)
 }
 
 #[tauri::command]
-fn create_drawing(app: AppHandle, name: Option<String>) -> Result<DrawingMeta, String> {
+fn create_drawing(
+    app: AppHandle,
+    name: Option<String>,
+    folder: Option<String>,
+) -> Result<DrawingMeta, String> {
     let dir = library_dir(&app)?;
+    let folder = safe_folder(folder.as_deref().unwrap_or(""))?;
+    if !folder.is_empty() {
+        fs::create_dir_all(dir.join(&folder)).map_err(|error| error.to_string())?;
+    }
     let base = sanitize_name(name.as_deref().unwrap_or("Sans titre"));
-    let id = unique_id(&dir, &base, None);
+    let id = unique_id(&dir, &folder, &base, None);
     let empty = serde_json::json!({
         "type": "excalidraw",
         "version": 2,
@@ -336,25 +699,23 @@ fn create_drawing(app: AppHandle, name: Option<String>) -> Result<DrawingMeta, S
         "files": {}
     })
     .to_string();
-    fs::write(dir.join(format!("{id}{EXT}")), empty).map_err(|error| error.to_string())?;
+    fs::write(drawing_path(&dir, &id), empty).map_err(|error| error.to_string())?;
     meta_for(&dir, &id)
 }
 
 #[tauri::command]
 fn rename_drawing(app: AppHandle, id: String, new_name: String) -> Result<DrawingMeta, String> {
     let dir = library_dir(&app)?;
-    let id = safe_id(&id)?;
+    let id = safe_rel(&id)?;
+    let (folder, _) = split_folder(&id);
     let base = sanitize_name(&new_name);
-    let new_id = unique_id(&dir, &base, Some(&id));
+    let new_id = unique_id(&dir, folder, &base, Some(&id));
     if new_id != id {
-        fs::rename(
-            dir.join(format!("{id}{EXT}")),
-            dir.join(format!("{new_id}{EXT}")),
-        )
-        .map_err(|error| error.to_string())?;
-        let old_thumb = dir.join(THUMB_REL).join(format!("{id}.png"));
+        fs::rename(drawing_path(&dir, &id), drawing_path(&dir, &new_id))
+            .map_err(|error| error.to_string())?;
+        let old_thumb = thumbnail_path(&dir, &id);
         if old_thumb.exists() {
-            let _ = fs::rename(old_thumb, dir.join(THUMB_REL).join(format!("{new_id}.png")));
+            let _ = fs::rename(old_thumb, thumbnail_path(&dir, &new_id));
         }
     }
     meta_for(&dir, &new_id)
@@ -363,16 +724,14 @@ fn rename_drawing(app: AppHandle, id: String, new_name: String) -> Result<Drawin
 #[tauri::command]
 fn duplicate_drawing(app: AppHandle, id: String) -> Result<DrawingMeta, String> {
     let dir = library_dir(&app)?;
-    let id = safe_id(&id)?;
-    let new_id = unique_id(&dir, &format!("{id} copie"), None);
-    fs::copy(
-        dir.join(format!("{id}{EXT}")),
-        dir.join(format!("{new_id}{EXT}")),
-    )
-    .map_err(|error| error.to_string())?;
-    let old_thumb = dir.join(THUMB_REL).join(format!("{id}.png"));
+    let id = safe_rel(&id)?;
+    let (folder, base) = split_folder(&id);
+    let new_id = unique_id(&dir, folder, &format!("{base} copie"), None);
+    fs::copy(drawing_path(&dir, &id), drawing_path(&dir, &new_id))
+        .map_err(|error| error.to_string())?;
+    let old_thumb = thumbnail_path(&dir, &id);
     if old_thumb.exists() {
-        let _ = fs::copy(old_thumb, dir.join(THUMB_REL).join(format!("{new_id}.png")));
+        let _ = fs::copy(old_thumb, thumbnail_path(&dir, &new_id));
     }
     meta_for(&dir, &new_id)
 }
@@ -380,23 +739,26 @@ fn duplicate_drawing(app: AppHandle, id: String) -> Result<DrawingMeta, String> 
 #[tauri::command]
 fn delete_drawing(app: AppHandle, id: String) -> Result<(), String> {
     let dir = library_dir(&app)?;
-    let id = safe_id(&id)?;
-    let file = dir.join(format!("{id}{EXT}"));
+    let id = safe_rel(&id)?;
+    let file = drawing_path(&dir, &id);
     if file.exists() && trash::delete(&file).is_err() {
         fs::remove_file(&file).map_err(|error| error.to_string())?;
     }
-    let _ = fs::remove_file(dir.join(THUMB_REL).join(format!("{id}.png")));
+    let _ = fs::remove_file(thumbnail_path(&dir, &id));
     Ok(())
 }
 
 #[tauri::command]
 fn save_thumbnail(app: AppHandle, id: String, png_base64: String) -> Result<(), String> {
     let dir = library_dir(&app)?;
-    let id = safe_id(&id)?;
+    let id = safe_rel(&id)?;
     let raw = png_base64.split(',').next_back().unwrap_or(&png_base64);
     let bytes = B64.decode(raw.trim()).map_err(|error| error.to_string())?;
-    fs::write(dir.join(THUMB_REL).join(format!("{id}.png")), bytes)
-        .map_err(|error| error.to_string())
+    let target = thumbnail_path(&dir, &id);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(target, bytes).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -457,8 +819,8 @@ fn open_in_file_manager(path: &Path) -> std::io::Result<()> {
 #[tauri::command]
 fn reveal_drawing(app: AppHandle, id: String) -> Result<(), String> {
     let dir = library_dir(&app)?;
-    let id = safe_id(&id)?;
-    reveal_in_file_manager(&dir.join(format!("{id}{EXT}"))).map_err(|error| error.to_string())
+    let id = safe_rel(&id)?;
+    reveal_in_file_manager(&drawing_path(&dir, &id)).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -515,6 +877,11 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
         .item(
             &MenuItemBuilder::with_id("import", "Importer…")
                 .accelerator("CmdOrCtrl+O")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("new_folder", "Nouveau dossier")
+                .accelerator("CmdOrCtrl+Shift+N")
                 .build(handle)?,
         )
         .item(
@@ -581,12 +948,17 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
         let id = event.id().0.clone();
         if matches!(
             id.as_str(),
-            "new" | "import" | "save" | "open_dir" | "toggle_sidebar" | "toggle_theme"
+            "new" | "import" | "new_folder" | "save" | "open_dir" | "toggle_sidebar" | "toggle_theme"
         ) {
             let _ = app.emit("menu", id);
         }
     });
     Ok(())
+}
+
+#[tauri::command]
+fn scroll_device_kind() -> Option<&'static str> {
+    scroll_device::current()
 }
 
 fn main() {
@@ -615,6 +987,7 @@ fn main() {
         }))
         .setup(|app| {
             build_menu(app)?;
+            scroll_device::install(app.handle());
             let paths = command_line_paths();
             if !paths.is_empty() {
                 open_paths(app.handle(), paths);
@@ -633,6 +1006,13 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_drawings,
+            list_folders,
+            create_folder,
+            rename_folder,
+            delete_folder,
+            set_folder_color,
+            move_drawing,
+            reveal_folder,
             library_info,
             read_drawing,
             write_drawing,
@@ -645,7 +1025,8 @@ fn main() {
             reveal_drawing,
             open_library_dir,
             flush_complete,
-            frontend_ready
+            frontend_ready,
+            scroll_device_kind
         ])
         .build(tauri::generate_context!())
         .expect("impossible de démarrer Notinger")
@@ -691,8 +1072,85 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join(format!("Note{EXT}")), "{}").unwrap();
-        assert_eq!(unique_id(&dir, "Note", None), "Note 2");
-        assert_eq!(unique_id(&dir, "Note", Some("Note")), "Note");
+        assert_eq!(unique_id(&dir, "", "Note", None), "Note 2");
+        assert_eq!(unique_id(&dir, "", "Note", Some("Note")), "Note");
+    }
+
+    #[test]
+    fn unique_id_scopes_to_folder() {
+        let dir = std::env::temp_dir().join("notinger-test-unique-folder-scope");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("Projets")).unwrap();
+        fs::write(dir.join(format!("Note{EXT}")), "{}").unwrap();
+        fs::write(dir.join("Projets").join(format!("Note{EXT}")), "{}").unwrap();
+        assert_eq!(unique_id(&dir, "Projets", "Note", None), "Projets/Note 2");
+        assert_eq!(unique_id(&dir, "Projets", "Autre", None), "Projets/Autre");
+    }
+
+    #[test]
+    fn folders_are_created_renamed_and_moved_into() {
+        let dir = std::env::temp_dir().join("notinger-test-folders");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(THUMB_REL)).unwrap();
+        fs::write(
+            dir.join(format!("Note{EXT}")),
+            r#"{"type":"excalidraw","elements":[],"appState":{}}"#,
+        )
+        .unwrap();
+        fs::write(dir.join(THUMB_REL).join("Note.png"), "png").unwrap();
+
+        let folder = create_folder_at(&dir, "Projets").unwrap();
+        assert_eq!(folder.path, "Projets");
+        assert!(dir.join("Projets").is_dir());
+        assert_eq!(create_folder_at(&dir, "Projets").unwrap().path, "Projets 2");
+
+        set_folder_color_at(&dir, "Projets", Some("#E5484D")).unwrap();
+        assert!(set_folder_color_at(&dir, "Projets", Some("rouge")).is_err());
+        assert_eq!(
+            list_folders_at(&dir)[0].color.as_deref(),
+            Some("#e5484d")
+        );
+
+        let meta = move_drawing_at(&dir, "Note", "Projets").unwrap();
+        assert_eq!(meta.id, "Projets/Note");
+        assert_eq!(meta.name, "Note");
+        assert_eq!(meta.folder, "Projets");
+        assert!(dir.join("Projets").join(format!("Note{EXT}")).exists());
+        assert!(dir
+            .join(THUMB_REL)
+            .join("Projets")
+            .join("Note.png")
+            .exists());
+
+        let renamed = rename_folder_at(&dir, "Projets", "Archives").unwrap();
+        assert_eq!(renamed.path, "Archives");
+        assert_eq!(renamed.color.as_deref(), Some("#e5484d"));
+        assert!(dir.join("Archives").join(format!("Note{EXT}")).exists());
+        assert_eq!(list_folders_at(&dir).len(), 2);
+        assert_eq!(list_metas(&dir).first().unwrap().id, "Archives/Note");
+
+        set_folder_color_at(&dir, "Archives", None).unwrap();
+        assert!(list_folders_at(&dir)
+            .iter()
+            .all(|folder| folder.color.is_none()));
+
+        let root = move_drawing_at(&dir, "Archives/Note", "").unwrap();
+        assert_eq!(root.id, "Note");
+        assert!(dir.join(format!("Note{EXT}")).exists());
+    }
+
+    #[test]
+    fn safe_rel_allows_folders_and_rejects_traversal() {
+        assert!(safe_rel("../secret").is_err());
+        assert!(safe_rel("a/../b").is_err());
+        assert!(safe_rel("/abs").is_err());
+        assert!(safe_rel(".cache").is_err());
+        assert!(safe_rel("").is_err());
+        assert!(safe_rel("Mon schéma").is_ok());
+        assert_eq!(safe_rel("Projets/2024").unwrap(), "Projets/2024");
+        assert!(safe_folder("").is_ok());
+        assert!(safe_folder("Projets/2024").is_ok());
+        assert!(safe_folder("..").is_err());
     }
 
     #[test]
@@ -738,13 +1196,5 @@ mod tests {
         let path = dir.join(format!("Interne{EXT}"));
         fs::write(&path, r#"{"type":"excalidraw","elements":[],"appState":{}}"#).unwrap();
         assert_eq!(import_or_match(&dir, &path).as_deref(), Some("Interne"));
-    }
-
-    #[test]
-    fn safe_id_rejects_traversal() {
-        assert!(safe_id("../secret").is_err());
-        assert!(safe_id("a/b").is_err());
-        assert!(safe_id("").is_err());
-        assert!(safe_id("Mon schéma").is_ok());
     }
 }

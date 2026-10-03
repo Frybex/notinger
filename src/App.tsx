@@ -8,12 +8,13 @@ import type {
 } from '@excalidraw/excalidraw/types'
 import type { ExcalidrawElement, NonDeleted } from '@excalidraw/excalidraw/element/types'
 import { listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, open as openDialog } from '@tauri-apps/plugin-dialog'
 import Sidebar from './components/Sidebar'
 import Icon from './components/Icon'
-import { attachWheelZoom } from './lib/wheelZoom'
-import { api, type DrawingMeta, type SaveState } from './lib/api'
+import { attachWheelZoom, setWheelDevice } from './lib/wheelZoom'
+import { api, type DrawingMeta, type FolderInfo, type SaveState } from './lib/api'
 import '@excalidraw/excalidraw/index.css'
 
 type Scene = {
@@ -49,6 +50,7 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
 
 export default function App() {
   const [metas, setMetas] = useState<DrawingMeta[]>([])
+  const [folders, setFolders] = useState<FolderInfo[]>([])
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [scene, setScene] = useState<ExcalidrawInitialDataState | null>(null)
   const [renderKey, setRenderKey] = useState(0)
@@ -60,6 +62,7 @@ export default function App() {
     () => localStorage.getItem('notinger.sidebar') !== 'closed'
   )
   const [libraryDir, setLibraryDir] = useState('')
+  const [newFolderSignal, setNewFolderSignal] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   const theme = themeMode === 'system' ? systemTheme : themeMode
@@ -82,6 +85,20 @@ export default function App() {
     const host = canvasRef.current
     if (!host) return
     return attachWheelZoom(host)
+  }, [])
+
+  useEffect(() => {
+    const pending = listen<string>('scroll-device', ({ payload }) => {
+      if (payload === 'mouse' || payload === 'trackpad') setWheelDevice(payload)
+    })
+    void invoke<string | null>('scroll_device_kind')
+      .then((kind) => {
+        if (kind === 'mouse' || kind === 'trackpad') setWheelDevice(kind)
+      })
+      .catch(() => undefined)
+    return () => {
+      void pending.then((unsubscribe) => unsubscribe()).catch(() => undefined)
+    }
   }, [])
 
   useEffect(() => {
@@ -213,7 +230,9 @@ export default function App() {
   )
 
   const refresh = useCallback(async () => {
-    setMetas(await api.listDrawings())
+    const [list, folderList] = await Promise.all([api.listDrawings(), api.listFolders()])
+    setMetas(list)
+    setFolders(folderList)
   }, [])
 
   const openFromSystem = useCallback(
@@ -225,9 +244,9 @@ export default function App() {
   )
 
   const createDrawing = useCallback(
-    async (name?: string) => {
+    async (name?: string, folder?: string) => {
       try {
-        const meta = await api.createDrawing(name)
+        const meta = await api.createDrawing(name, folder ?? null)
         setMetas((previous) => [meta, ...previous.filter((item) => item.id !== meta.id)])
         await openDrawing(meta.id)
       } catch (cause) {
@@ -235,6 +254,118 @@ export default function App() {
       }
     },
     [openDrawing]
+  )
+
+  const createFolder = useCallback(async (name: string) => {
+    try {
+      const folder = await api.createFolder(name)
+      setFolders((previous) =>
+        [...previous.filter((item) => item.path !== folder.path), folder].sort((a, b) =>
+          a.path.localeCompare(b.path, 'fr')
+        )
+      )
+    } catch (cause) {
+      setError(`Création du dossier impossible : ${String(cause)}`)
+    }
+  }, [])
+
+  const flushPending = useCallback(async () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    await doSave({ thumb: true })
+  }, [doSave])
+
+  const renameFolder = useCallback(
+    async (path: string, newName: string) => {
+      try {
+        await flushPending()
+        const folder = await api.renameFolder(path, newName)
+        const oldPrefix = `${path}/`
+        const newPrefix = `${folder.path}/`
+        if (currentIdRef.current?.startsWith(oldPrefix)) {
+          const next = `${newPrefix}${currentIdRef.current.slice(oldPrefix.length)}`
+          currentIdRef.current = next
+          setCurrentId(next)
+        }
+        const [list, folderList] = await Promise.all([api.listDrawings(), api.listFolders()])
+        setMetas(list)
+        setFolders(folderList)
+      } catch (cause) {
+        setError(`Renommage du dossier impossible : ${String(cause)}`)
+      }
+    },
+    [flushPending]
+  )
+
+  const deleteFolder = useCallback(
+    async (path: string) => {
+      const accepted = await confirm(
+        `Placer « ${path} » et tout son contenu dans la corbeille ?`,
+        {
+          title: 'Supprimer le dossier',
+          kind: 'warning',
+          okLabel: 'Corbeille',
+          cancelLabel: 'Annuler'
+        }
+      )
+      if (!accepted) return
+      try {
+        await flushPending()
+        await api.deleteFolder(path)
+        const prefix = `${path}/`
+        const remaining = metasRef.current.filter((meta) => !meta.id.startsWith(prefix))
+        setMetas(remaining)
+        setFolders((previous) =>
+          previous.filter(
+            (item) => item.path !== path && !item.path.startsWith(prefix)
+          )
+        )
+        if (currentIdRef.current?.startsWith(prefix)) {
+          if (remaining.length > 0) {
+            await openDrawing(remaining[0].id, { flush: false })
+          } else {
+            currentIdRef.current = null
+            liveRef.current = null
+            dirtyRef.current = false
+            setCurrentId(null)
+            setScene(null)
+          }
+        }
+      } catch (cause) {
+        setError(`Suppression du dossier impossible : ${String(cause)}`)
+      }
+    },
+    [flushPending, openDrawing]
+  )
+
+  const setFolderColor = useCallback(async (path: string, color: string | null) => {
+    try {
+      await api.setFolderColor(path, color)
+      setFolders((previous) =>
+        previous.map((folder) => (folder.path === path ? { ...folder, color } : folder))
+      )
+    } catch (cause) {
+      setError(`Couleur impossible : ${String(cause)}`)
+    }
+  }, [])
+
+  const moveDrawing = useCallback(
+    async (id: string, folder: string) => {
+      try {
+        if (currentIdRef.current === id) await flushPending()
+        const meta = await api.moveDrawing(id, folder || null)
+        if (currentIdRef.current === id) {
+          currentIdRef.current = meta.id
+          setCurrentId(meta.id)
+        }
+        setMetas((previous) => previous.map((item) => (item.id === id ? meta : item)))
+      } catch (cause) {
+        setError(`Déplacement impossible : ${String(cause)}`)
+      }
+    },
+    [flushPending]
   )
 
   const renameDrawing = useCallback(
@@ -366,10 +497,15 @@ export default function App() {
     })
     void (async () => {
       try {
-        const [list, info] = await Promise.all([api.listDrawings(), api.libraryInfo()])
+        const [list, folderList, info] = await Promise.all([
+          api.listDrawings(),
+          api.listFolders(),
+          api.libraryInfo()
+        ])
         if (cancelled) return
         setLibraryDir(info.dir)
         setMetas(list)
+        setFolders(folderList)
         const pending = await api.frontendReady().catch(() => [] as string[])
         if (cancelled) return
         const requested = pending.length > 0 ? pending[pending.length - 1] : null
@@ -435,7 +571,10 @@ export default function App() {
     const onMenu = (payload: string) => {
       if (payload === 'new') void createDrawing()
       else if (payload === 'import') void importFiles()
-      else if (payload === 'toggle_sidebar') toggleSidebar()
+      else if (payload === 'new_folder') {
+        setSidebarOpen(true)
+        setNewFolderSignal((signal) => signal + 1)
+      } else if (payload === 'toggle_sidebar') toggleSidebar()
       else if (payload === 'toggle_theme') toggleTheme()
       else if (payload === 'save') {
         if (timerRef.current !== null) {
@@ -464,6 +603,7 @@ export default function App() {
             onChange={handleChange}
             theme={theme}
             langCode="fr-FR"
+            validateEmbeddable
             UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false } }}
           />
         ) : null}
@@ -495,20 +635,29 @@ export default function App() {
       </main>
       <Sidebar
         metas={metas}
+        folders={folders}
         currentId={currentId}
         libraryDir={libraryDir}
         saveState={saveState}
         collapsed={!sidebarOpen}
         theme={theme}
+        newFolderSignal={newFolderSignal}
         onToggle={toggleSidebar}
         onToggleTheme={toggleTheme}
         onSelect={(id) => void openDrawing(id)}
         onNew={() => void createDrawing()}
+        onNewInFolder={(folder) => void createDrawing(undefined, folder)}
         onImport={() => void importFiles()}
         onRename={(id, name) => void renameDrawing(id, name)}
         onDuplicate={(id) => void duplicateDrawing(id)}
         onDelete={(id) => void deleteDrawing(id)}
         onReveal={(id) => void api.revealDrawing(id)}
+        onCreateFolder={(name) => void createFolder(name)}
+        onRenameFolder={(path, name) => void renameFolder(path, name)}
+        onDeleteFolder={(path) => void deleteFolder(path)}
+        onRevealFolder={(path) => void api.revealFolder(path)}
+        onFolderColor={(path, color) => void setFolderColor(path, color)}
+        onMoveDrawing={(id, folder) => void moveDrawing(id, folder)}
         onOpenDir={() => void api.openLibraryDir()}
       />
       {error ? (

@@ -27,6 +27,7 @@
           "y": 18
         },
         "acceptFirstMouse": true,
+        "dragDropEnabled": false,
         "backgroundColor": "#FAF9F8"
       }
     ],

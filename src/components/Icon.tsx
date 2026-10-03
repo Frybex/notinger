@@ -22,6 +22,20 @@ const shapes: Record<string, ReactNode> = {
   folder: (
     <path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2h7.4a2 2 0 0 1 2 2v6.9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
   ),
+  folderPlus: (
+    <>
+      <path d="M3 6.5a2 2 0 0 1 2-2h4l2 2H19a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      <path d="M12 10.5v4.8" />
+      <path d="M9.6 12.9h4.8" />
+    </>
+  ),
+  folderMove: (
+    <>
+      <path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2h7.4a2 2 0 0 1 2 2v6.9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
+      <path d="M10 13h5.5" />
+      <path d="m13.5 11 2 2-2 2" />
+    </>
+  ),
   trash: (
     <>
       <path d="M4 7h16" />
