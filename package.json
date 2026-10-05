@@ -1,6 +1,6 @@
 {
   "name": "notinger",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Schémas et notes visuelles 100% locales, propulsés par Excalidraw.",
   "type": "module",
   "private": true,

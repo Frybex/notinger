@@ -32,6 +32,9 @@ body {
   --hover: rgba(20, 20, 25, 0.045);
   --danger: #d4504a;
   --shadow: 0 14px 34px rgba(15, 15, 20, 0.16);
+  --pdf-frame-line: rgba(20, 20, 25, 0.48);
+  --pdf-frame-mask: #ffffff;
+  --pdf-frame-text: #63636c;
   display: flex;
   height: 100vh;
   overflow: hidden;
@@ -57,6 +60,9 @@ body {
   --hover: rgba(255, 255, 255, 0.05);
   --danger: #ff6b64;
   --shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  --pdf-frame-line: rgba(236, 236, 240, 0.42);
+  --pdf-frame-mask: #121212;
+  --pdf-frame-text: #b4b4bf;
 }
 
 .sidebar {
@@ -1286,6 +1292,30 @@ html.is-mac .excalidraw .main-menu-trigger {
   z-index: 5;
   overflow: hidden;
   pointer-events: none;
+}
+
+/* Cadre des objets PDF : la mention « PDF » coupe le bord supérieur. */
+.pdfov-frame {
+  position: absolute;
+  border: 1px solid var(--pdf-frame-line);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.pdfov-frame-label {
+  position: absolute;
+  top: 0;
+  left: 14px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--pdf-frame-mask);
+  color: var(--pdf-frame-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 14px;
+  white-space: nowrap;
+  transform: translateY(-50%);
 }
 
 .pdfov-bar {

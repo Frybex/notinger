@@ -367,6 +367,13 @@ export default function PdfOverlay({ hostRef, apiRef, api, renderKey, onError }:
     left: number
     top: number
   }> = []
+  const frames: Array<{
+    id: string
+    left: number
+    top: number
+    width: number
+    height: number
+  }> = []
   for (const el of pdfElsRef.current) {
     const meta = pdfMetaOf(el)
     if (!meta) continue
@@ -375,6 +382,10 @@ export default function PdfOverlay({ hostRef, apiRef, api, renderKey, onError }:
     const w = el.width * zoom
     const h = el.height * zoom
     if (sx > hostRect.width || sy > hostRect.height || sx + w < 0 || sy + h < 0) continue
+    // Cadre « PDF » : masqué quand la page est trop petite pour rester lisible.
+    if (w >= 64 && h >= 48) {
+      frames.push({ id: el.id, left: sx, top: sy, width: w, height: h })
+    }
     const visible =
       hoverId === el.id || selected.has(el.id) || turningIds.includes(el.id) || editingId === el.id
     if (!visible) continue
@@ -390,10 +401,15 @@ export default function PdfOverlay({ hostRef, apiRef, api, renderKey, onError }:
       top
     })
   }
-  if (bars.length === 0) return null
+  if (frames.length === 0 && bars.length === 0) return null
 
   return (
     <div className="pdfov-layer">
+      {frames.map(({ id, left, top, width, height }) => (
+        <div key={id} className="pdfov-frame" style={{ left, top, width, height }}>
+          <span className="pdfov-frame-label">PDF</span>
+        </div>
+      ))}
       {bars.map(({ id, el, meta, orphan, loading, left, top }) => (
         <div
           key={id}

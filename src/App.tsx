@@ -19,6 +19,7 @@ import PointTool from './components/PointTool'
 import UpdateNotice from './components/UpdateNotice'
 import { attachWheelZoom, setWheelDevice } from './lib/wheelZoom'
 import { attachToolLock } from './lib/toolLock'
+import { fitContentInViewport } from './lib/fit'
 import { SnapAssist } from './lib/snap'
 import { StyleMemory } from './lib/styleMemory'
 import { isMac } from './lib/platform'
@@ -54,24 +55,6 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
     bytes[index] = binary.charCodeAt(index)
   }
   return bytes
-}
-
-/** Marges laissées à l'interface flottante d'Excalidraw (barre d'outils du haut). */
-const FIT_CANVAS_OFFSETS = { top: 54, bottom: 18 }
-
-/**
- * Recadre tout le contenu du canevas — dessins, images et pages PDF sont des
- * éléments de la scène — pour qu'il soit entièrement visible, sans jamais
- * dépasser 100 % de zoom.
- */
-function fitContentInViewport(instance: ExcalidrawImperativeAPI, animated = false) {
-  instance.scrollToContent(instance.getSceneElements(), {
-    fitToContent: true,
-    viewportZoomFactor: 0.92,
-    canvasOffsets: FIT_CANVAS_OFFSETS,
-    animate: animated,
-    ...(animated ? { duration: 250 } : {})
-  })
 }
 
 /**
@@ -111,7 +94,7 @@ function scheduleContentViewportFit(
   const apply = () => {
     if (stopped || !isAlive()) return
     try {
-      fitContentInViewport(instance)
+      fitContentInViewport(instance, host)
     } catch {
       /* instance démontée */
     }
@@ -268,7 +251,7 @@ export default function App() {
     const instance = apiRef.current
     if (!instance) return
     try {
-      fitContentInViewport(instance, true)
+      fitContentInViewport(instance, canvasRef.current, true)
     } catch {
       /* instance démontée */
     }
