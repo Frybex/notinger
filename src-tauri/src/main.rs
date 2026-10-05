@@ -25,6 +25,7 @@ use tauri::{
 const EXT: &str = ".excalidraw";
 const THUMB_REL: &str = ".notinger/thumbnails";
 const COLORS_REL: &str = ".notinger/folders.json";
+const PDF_REL: &str = ".notinger/pdfs";
 const FLUSH_GRACE_MS: u64 = 1600;
 
 #[derive(Default)]
@@ -439,6 +440,8 @@ fn create_main_window(app: &AppHandle) -> Option<WebviewWindow> {
         .ok()?
         .build()
         .ok()?;
+    // Démarrage bord à bord avec l'écran.
+    let _ = window.maximize();
     app.state::<CloseGate>().flushed.store(false, Ordering::SeqCst);
     app.state::<OpenGate>().ready.store(false, Ordering::SeqCst);
     Some(window)
@@ -781,6 +784,40 @@ fn read_imports(paths: Vec<String>) -> Result<Vec<ImportedFile>, String> {
         .collect()
 }
 
+fn pdf_file_path(dir: &Path, id: &str) -> Result<PathBuf, String> {
+    let id = safe_rel(id)?;
+    Ok(dir.join(PDF_REL).join(format!("{id}.pdf")))
+}
+
+fn save_pdf_at(dir: &Path, id: &str, source: &Path) -> Result<(), String> {
+    let target = pdf_file_path(dir, id)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::copy(source, &target).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn read_pdf_at(dir: &Path, id: &str) -> Result<String, String> {
+    let bytes = fs::read(pdf_file_path(dir, id)?).map_err(|error| error.to_string())?;
+    Ok(B64.encode(bytes))
+}
+
+/**
+ * Copie le PDF dans la bibliothèque : le lien reste valable après un
+ * redémarrage, même si le fichier d'origine est déplacé ou supprimé.
+ */
+#[tauri::command]
+fn save_pdf(app: AppHandle, id: String, source_path: String) -> Result<(), String> {
+    let dir = library_dir(&app)?;
+    save_pdf_at(&dir, &id, Path::new(&source_path))
+}
+
+#[tauri::command]
+fn read_pdf(app: AppHandle, id: String) -> Result<String, String> {
+    read_pdf_at(&library_dir(&app)?, &id)
+}
+
 #[cfg(target_os = "macos")]
 fn reveal_in_file_manager(path: &Path) -> std::io::Result<()> {
     Command::new("open").arg("-R").arg(path).spawn().map(|_| ())
@@ -914,6 +951,11 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
                 .accelerator("CmdOrCtrl+Shift+D")
                 .build(handle)?,
         )
+        .item(
+            &MenuItemBuilder::with_id("fit_all", "Voir tout le contenu")
+                .accelerator("CmdOrCtrl+T")
+                .build(handle)?,
+        )
         .build()?;
     let window_menu = SubmenuBuilder::new(handle, "Fenêtre")
         .item(&PredefinedMenuItem::minimize(handle, Some("Réduire"))?)
@@ -938,7 +980,7 @@ fn build_menu(app: &tauri::App) -> tauri::Result<()> {
         let id = event.id().0.clone();
         if matches!(
             id.as_str(),
-            "new" | "import" | "new_folder" | "save" | "open_dir" | "toggle_sidebar" | "toggle_theme"
+            "new" | "import" | "new_folder" | "save" | "open_dir" | "toggle_sidebar" | "toggle_theme" | "fit_all"
         ) {
             let _ = app.emit("menu", id);
         }
@@ -1002,6 +1044,11 @@ fn main() {
         .setup(|app| {
             build_menu(app)?;
             scroll_device::install(app.handle());
+            // Démarrage bord à bord avec l'écran (la config `maximized`
+            // couvre le cas nominal, ceci sécurise les recréations).
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.maximize();
+            }
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
                 harden_webview(&window);
@@ -1040,6 +1087,8 @@ fn main() {
             delete_drawing,
             save_thumbnail,
             read_imports,
+            save_pdf,
+            read_pdf,
             reveal_drawing,
             open_library_dir,
             flush_complete,
@@ -1214,5 +1263,23 @@ mod tests {
         let path = dir.join(format!("Interne{EXT}"));
         fs::write(&path, r#"{"type":"excalidraw","elements":[],"appState":{}}"#).unwrap();
         assert_eq!(import_or_match(&dir, &path).as_deref(), Some("Interne"));
+    }
+
+    #[test]
+    fn pdfs_are_saved_and_read_back() {
+        let dir = std::env::temp_dir().join("notinger-test-pdf");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.pdf");
+        fs::write(&source, b"%PDF-1.4 contenu").unwrap();
+
+        save_pdf_at(&dir, "pdfdoc-abc", &source).unwrap();
+        assert!(dir.join(PDF_REL).join("pdfdoc-abc.pdf").exists());
+        let raw = read_pdf_at(&dir, "pdfdoc-abc").unwrap();
+        assert_eq!(B64.decode(raw).unwrap(), b"%PDF-1.4 contenu");
+
+        assert!(read_pdf_at(&dir, "inconnu").is_err());
+        assert!(save_pdf_at(&dir, "../evasion", &source).is_err());
+        assert!(read_pdf_at(&dir, "../evasion").is_err());
     }
 }

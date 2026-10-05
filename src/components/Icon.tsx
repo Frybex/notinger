@@ -64,6 +64,24 @@ const shapes: Record<string, ReactNode> = {
     </>
   ),
   check: <path d="m5 12.5 4.5 4.5L19 7" />,
+  point: <circle cx="12" cy="12" r="5.5" fill="currentColor" stroke="none" />,
+  pointHollow: <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth={2} />,
+  x: <path d="M6 6l12 12M18 6 6 18" />,
+  fileText: (
+    <>
+      <path d="M14 2.5H6a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-12.5Z" />
+      <path d="M14 2.5v4.5a1.5 1.5 0 0 0 1.5 1.5H20" />
+      <path d="M9 12.5h6" />
+      <path d="M9 16h6" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="4.5" width="18" height="15" rx="3" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="m5.5 18.5 4.5-4.5 2.5 2.5 3-3 3.5 3.5" />
+    </>
+  ),
   chevronLeft: <path d="m14.5 6.5-5 5.5 5 5.5" />,
   chevronRight: <path d="m9.5 6.5 5 5.5-5 5.5" />,
   moon: <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />,

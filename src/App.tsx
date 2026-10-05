@@ -13,7 +13,13 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, open as openDialog } from '@tauri-apps/plugin-dialog'
 import Sidebar from './components/Sidebar'
 import Icon from './components/Icon'
+import ImageMenu from './components/ImageMenu'
+import PdfOverlay from './components/PdfOverlay'
+import PointTool from './components/PointTool'
 import { attachWheelZoom, setWheelDevice } from './lib/wheelZoom'
+import { attachToolLock } from './lib/toolLock'
+import { SnapAssist } from './lib/snap'
+import { StyleMemory } from './lib/styleMemory'
 import { isMac } from './lib/platform'
 import { api, type DrawingMeta, type FolderInfo, type SaveState } from './lib/api'
 import '@excalidraw/excalidraw/index.css'
@@ -49,6 +55,102 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   return bytes
 }
 
+/** Marges laissées à l'interface flottante d'Excalidraw (barre d'outils du haut). */
+const FIT_CANVAS_OFFSETS = { top: 54, bottom: 18 }
+
+/**
+ * Recadre tout le contenu du canevas — dessins, images et pages PDF sont des
+ * éléments de la scène — pour qu'il soit entièrement visible, sans jamais
+ * dépasser 100 % de zoom.
+ */
+function fitContentInViewport(instance: ExcalidrawImperativeAPI, animated = false) {
+  instance.scrollToContent(instance.getSceneElements(), {
+    fitToContent: true,
+    viewportZoomFactor: 0.92,
+    canvasOffsets: FIT_CANVAS_OFFSETS,
+    animate: animated,
+    ...(animated ? { duration: 250 } : {})
+  })
+}
+
+/**
+ * Programme le cadrage d'ouverture : attend la fin de la restauration de la
+ * scène (`isLoading`) et un canevas réellement mesuré — sinon la vue
+ * restaurée (zoom / position sauvegardés) écrase le cadrage — puis applique
+ * à nouveau une fois la fenêtre stabilisée. Toute interaction de
+ * l'utilisateur annule la suite. Retourne la fonction d'annulation.
+ */
+function scheduleContentViewportFit(
+  instance: ExcalidrawImperativeAPI,
+  host: HTMLElement | null,
+  isAlive: () => boolean
+): () => void {
+  const listeners: Array<() => void> = []
+  let stopped = false
+  let readyTimer: number | null = null
+  let settleTimer: number | null = null
+
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    if (readyTimer !== null) window.clearTimeout(readyTimer)
+    if (settleTimer !== null) window.clearTimeout(settleTimer)
+    for (const off of listeners) off()
+    listeners.length = 0
+  }
+
+  if (host) {
+    const onInteract = () => stop()
+    for (const name of ['pointerdown', 'wheel', 'keydown'] as const) {
+      host.addEventListener(name, onInteract, true)
+      listeners.push(() => host.removeEventListener(name, onInteract, true))
+    }
+  }
+
+  const apply = () => {
+    if (stopped || !isAlive()) return
+    try {
+      fitContentInViewport(instance)
+    } catch {
+      /* instance démontée */
+    }
+  }
+
+  const isReady = () => {
+    try {
+      const state = instance.getAppState()
+      return state.isLoading === false && (state.width ?? 0) > 8 && (state.height ?? 0) > 8
+    } catch {
+      return false
+    }
+  }
+
+  const deadline = performance.now() + 8000
+  const waitForScene = () => {
+    if (stopped) return
+    if (!isAlive()) {
+      stop()
+      return
+    }
+    if (isReady()) {
+      apply()
+      settleTimer = window.setTimeout(() => {
+        apply()
+        stop()
+      }, 500)
+      return
+    }
+    if (performance.now() >= deadline) {
+      stop()
+      return
+    }
+    readyTimer = window.setTimeout(waitForScene, 60)
+  }
+
+  waitForScene()
+  return stop
+}
+
 export default function App() {
   const [metas, setMetas] = useState<DrawingMeta[]>([])
   const [folders, setFolders] = useState<FolderInfo[]>([])
@@ -70,6 +172,7 @@ export default function App() {
   const theme = themeMode === 'system' ? systemTheme : themeMode
 
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null)
+  const [excalidrawApi, setExcalidrawApi] = useState<ExcalidrawImperativeAPI | null>(null)
   const canvasRef = useRef<HTMLElement | null>(null)
   const liveRef = useRef<Scene | null>(null)
   const currentIdRef = useRef<string | null>(null)
@@ -78,15 +181,49 @@ export default function App() {
   const dirtyRef = useRef(false)
   const timerRef = useRef<number | null>(null)
   const lastThumbRef = useRef(0)
+  const snapRef = useRef<SnapAssist | null>(null)
+  const fitStopRef = useRef<(() => void) | null>(null)
+
+  const getSnap = () => {
+    if (!snapRef.current) snapRef.current = new SnapAssist()
+    return snapRef.current
+  }
+
+  const styleMemRef = useRef<StyleMemory | null>(null)
+
+  const getStyleMem = () => {
+    if (!styleMemRef.current) styleMemRef.current = new StyleMemory()
+    return styleMemRef.current
+  }
 
   useEffect(() => {
     metasRef.current = metas
   }, [metas])
 
+  useEffect(
+    () => () => {
+      fitStopRef.current?.()
+      fitStopRef.current = null
+    },
+    []
+  )
+
   useEffect(() => {
     const host = canvasRef.current
     if (!host) return
     return attachWheelZoom(host)
+  }, [])
+
+  useEffect(() => {
+    const host = canvasRef.current
+    if (!host) return
+    const getApi = () => apiRef.current
+    const offLock = attachToolLock(host, getApi)
+    const offSnap = getSnap().attach(host, getApi, () => liveRef.current?.elements ?? [])
+    return () => {
+      offLock()
+      offSnap()
+    }
   }, [])
 
   useEffect(() => {
@@ -124,6 +261,16 @@ export default function App() {
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => !open)
+  }, [])
+
+  const fitAll = useCallback(() => {
+    const instance = apiRef.current
+    if (!instance) return
+    try {
+      fitContentInViewport(instance, true)
+    } catch {
+      /* instance démontée */
+    }
   }, [])
 
   const makeThumbnail = useCallback(async (id: string, current: Scene) => {
@@ -189,6 +336,10 @@ export default function App() {
   const handleChange = useCallback(
     (elements: readonly ExcalidrawElement[], appState: AppState, files: BinaryFiles) => {
       liveRef.current = { elements, appState, files }
+      getSnap().trackChange(elements)
+      getStyleMem().onChange(elements, appState, (next) => {
+        apiRef.current?.updateScene({ elements: next as never })
+      })
       dirtyRef.current = true
       if (timerRef.current !== null) window.clearTimeout(timerRef.current)
       timerRef.current = window.setTimeout(() => {
@@ -215,11 +366,16 @@ export default function App() {
         dirtyRef.current = false
         currentIdRef.current = id
         setCurrentId(id)
+        const savedAppState = { ...((parsed.appState ?? {}) as Record<string, unknown>) }
+        // La vue sauvegardée (position, zoom) n'est jamais restaurée :
+        // chaque ouverture recadre l'intégralité du contenu.
+        delete savedAppState.zoom
+        delete savedAppState.scrollX
+        delete savedAppState.scrollY
         setScene({
           elements: parsed.elements ?? [],
-          appState: parsed.appState ?? {},
-          files: parsed.files ?? {},
-          scrollToContent: true
+          appState: savedAppState,
+          files: parsed.files ?? {}
         } as ExcalidrawInitialDataState)
         setRenderKey((key) => key + 1)
         setSaveState('idle')
@@ -534,6 +690,17 @@ export default function App() {
   }, [openDrawing, openFromSystem])
 
   useEffect(() => {
+    try {
+      // Ceinture + bretelles : la fenêtre démarre maximisée (bord à bord).
+      void getCurrentWindow()
+        .maximize()
+        .catch(() => undefined)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
     let unsubscribe: (() => void) | undefined
     try {
       const current = getCurrentWindow()
@@ -580,6 +747,7 @@ export default function App() {
         setNewFolderSignal((signal) => signal + 1)
       } else if (command === 'toggle_sidebar') toggleSidebar()
       else if (command === 'toggle_theme') toggleTheme()
+      else if (command === 'fit_all') fitAll()
       else if (command === 'save') {
         if (timerRef.current !== null) {
           window.clearTimeout(timerRef.current)
@@ -590,7 +758,7 @@ export default function App() {
         })
       } else if (command === 'open_dir') void api.openLibraryDir()
     },
-    [createDrawing, doSave, importFiles, toggleSidebar, toggleTheme]
+    [createDrawing, doSave, fitAll, importFiles, toggleSidebar, toggleTheme]
   )
 
   useEffect(() => {
@@ -613,6 +781,7 @@ export default function App() {
       else if (key === 'o') command = 'import'
       else if (key === 's') command = 'save'
       else if (key === 'b') command = 'toggle_sidebar'
+      else if (key === 't') command = 'fit_all'
       if (!command) return
       event.preventDefault()
       runCommand(command)
@@ -629,6 +798,20 @@ export default function App() {
             key={renderKey}
             excalidrawAPI={(instance) => {
               apiRef.current = instance
+              // L'API impérative n'est créée qu'une fois l'initialisation
+              // interne d'Excalidraw terminée : on la publie à l'état (hors
+              // phase de rendu) pour que les outils s'y rattachent.
+              requestAnimationFrame(() => {
+                if (apiRef.current === instance) setExcalidrawApi(instance)
+              })
+              // À l'ouverture (démarrage ou changement de schéma) : tout le
+              // contenu — dessins, images, pages PDF — est cadré dans la fenêtre.
+              fitStopRef.current?.()
+              fitStopRef.current = scheduleContentViewportFit(
+                instance,
+                canvasRef.current,
+                () => apiRef.current === instance
+              )
             }}
             initialData={scene}
             onChange={handleChange}
@@ -662,6 +845,34 @@ export default function App() {
               </button>
             </div>
           </div>
+        ) : null}
+        {!loading && scene ? (
+          <ImageMenu
+            hostRef={canvasRef}
+            apiRef={apiRef}
+            api={excalidrawApi}
+            renderKey={renderKey}
+            onError={(message) => setError(message)}
+          />
+        ) : null}
+        {!loading && scene ? (
+          <PdfOverlay
+            hostRef={canvasRef}
+            apiRef={apiRef}
+            api={excalidrawApi}
+            renderKey={renderKey}
+            onError={(message) => setError(message)}
+          />
+        ) : null}
+        {!loading && scene ? (
+          <PointTool
+            hostRef={canvasRef}
+            apiRef={apiRef}
+            api={excalidrawApi}
+            renderKey={renderKey}
+            getSnap={getSnap}
+            onError={(message) => setError(message)}
+          />
         ) : null}
       </main>
       <Sidebar

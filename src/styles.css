@@ -778,7 +778,7 @@ button {
   background: var(--bg);
 }
 
-.canvas > div {
+.canvas > div.excalidraw {
   height: 100%;
 }
 
@@ -1026,3 +1026,295 @@ html.is-mac .excalidraw .main-menu-trigger {
 .excalidraw .ToolIcon:has([data-testid='toolbar-eraser']) .ToolIcon__keybinding::after {
   content: 'E';
 }
+
+/* L'outil image natif reste activé mais son bouton est remplacé par le
+   bouton unifié (image + PDF) inséré exactement au même endroit. */
+.excalidraw .ToolIcon:has([data-testid="toolbar-image"]) {
+  display: none;
+}
+
+.imgmenu-slot {
+  display: contents;
+}
+
+/* Nos pastilles (Point, Image) sont de vrais <button> : sans ce reset, le
+   padding par défaut du navigateur les rend plus larges que les outils natifs
+   d'Excalidraw (qui passent par .ToolIcon_type_button). */
+.excalidraw .imgmenu-tool,
+.excalidraw .point-tool {
+  margin: 0;
+  padding: 0;
+}
+
+.imgmenu-tool.imgmenu-active .ToolIcon__icon,
+.point-tool.point-tool-active .ToolIcon__icon {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.imgmenu.context-menu {
+  z-index: 60;
+}
+
+.point-tool-slot,
+.point-panel-slot {
+  display: contents;
+}
+
+/* Mode point : le point n'a qu'une seule couleur (celle du trait) et il est
+   toujours plein. On masque donc la couleur de fond, le remplissage et
+   l'épaisseur du trait — remplacée par le curseur de taille. */
+.point-mode .excalidraw .panelColumn fieldset:has([data-testid='fill-solid']),
+.point-mode .excalidraw .panelColumn fieldset:has([data-testid='strokeWidth-thin']),
+.point-mode
+  .excalidraw
+  .panelColumn
+  > div:has(.color-picker-container)
+  + div:has(.color-picker-container) {
+  display: none !important;
+}
+
+/* En mode point, c'est notre pastille qui représente l'outil actif, pas
+   l'ellipse native sous-jacente. */
+.point-placing
+  .excalidraw
+  .ToolIcon:has([data-testid='toolbar-ellipse'])
+  .ToolIcon_type_radio:checked
+  + .ToolIcon__icon {
+  background: transparent;
+}
+
+.point-placing
+  .excalidraw
+  .ToolIcon:has([data-testid='toolbar-ellipse'])
+  .ToolIcon_type_radio:checked
+  + .ToolIcon__icon
+  svg {
+  color: var(--icon-fill-color);
+}
+
+.point-size-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 18px;
+  margin-bottom: 0.25rem;
+  color: var(--text-primary-color, currentColor);
+  font-size: 0.75rem;
+}
+
+/* Aperçu 1:1 : la pastille fait exactement la taille qu'aura le point posé
+   (à l'échelle du zoom courant). */
+.point-size-preview {
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 18px;
+  min-height: 18px;
+  place-items: center;
+}
+
+.point-size-preview-dot {
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--default-border-color, rgba(0, 0, 0, 0.12));
+}
+
+.point-size-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary-color, currentColor);
+  font-size: 0.75rem;
+}
+
+.point-size-row input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--color-brand-hover, var(--accent));
+  cursor: pointer;
+}
+
+.pdf-placing .excalidraw canvas,
+.point-placing .excalidraw canvas {
+  cursor: crosshair !important;
+}
+
+.pdf-hint {
+  position: absolute;
+  top: 62px;
+  left: 50%;
+  z-index: 13;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.pdf-hint > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.snap-marker {
+  position: absolute;
+  z-index: 30;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: rgba(91, 87, 209, 0.18);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.snap-marker::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.snap-badge {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  z-index: 30;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Objets PDF posés sur le plan : barre de navigation (survol / sélection). */
+.pdfov-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pdfov-bar {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pdfov-bar button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.pdfov-bar button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.pdfov-bar button:disabled {
+  opacity: 0.4;
+}
+
+.pdfov-bar .pdfov-count {
+  width: auto;
+  height: auto;
+  min-width: 56px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdfov-bar .pdfov-link {
+  width: auto;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pdfov-bar .pdfov-extract {
+  width: auto;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 2px;
+  padding: 0 8px;
+  border-left: 1px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pdfov-name {
+  max-width: 150px;
+  overflow: hidden;
+  padding: 0 4px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdfov-loading {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.pdfov-count-input {
+  width: 56px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+  outline: none;
+}
+
+.pdf-placing .pdfov-bar,
+.point-placing .pdfov-bar {
+  display: none;
+}
+

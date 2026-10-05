@@ -51,6 +51,8 @@ export const api = {
   saveThumbnail: (id: string, pngBase64: string) =>
     invoke<void>('save_thumbnail', { id, pngBase64 }),
   readImports: (paths: string[]) => invoke<ImportedFile[]>('read_imports', { paths }),
+  savePdf: (id: string, sourcePath: string) => invoke<void>('save_pdf', { id, sourcePath }),
+  readPdf: (id: string) => invoke<string>('read_pdf', { id }),
   revealDrawing: (id: string) => invoke<void>('reveal_drawing', { id }),
   openLibraryDir: () => invoke<void>('open_library_dir'),
   flushComplete: () => invoke<void>('flush_complete'),

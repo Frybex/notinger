@@ -8,5 +8,6 @@ export const shortcuts = {
   newFolder: isMac ? '⌘⇧N' : 'Ctrl+Maj+N',
   save: isMac ? '⌘S' : 'Ctrl+S',
   toggleSidebar: isMac ? '⌘B' : 'Ctrl+B',
-  toggleTheme: isMac ? '⌘⇧D' : 'Ctrl+Maj+D'
+  toggleTheme: isMac ? '⌘⇧D' : 'Ctrl+Maj+D',
+  fitAll: isMac ? '⌘T' : 'Ctrl+T'
 } as const
