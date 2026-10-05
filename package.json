@@ -1,6 +1,6 @@
 {
   "name": "notinger",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Schémas et notes visuelles 100% locales, propulsés par Excalidraw.",
   "type": "module",
   "private": true,
@@ -12,12 +12,15 @@
     "app:dev": "tauri dev",
     "app:build": "tauri build",
     "app:install": "node scripts/app-install.mjs",
+    "bump": "node scripts/bump-version.mjs",
     "icon": "node scripts/run-python.mjs scripts/make-icon.py && tauri icon build/icon.png"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.13.1",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

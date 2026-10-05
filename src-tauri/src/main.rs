@@ -1020,6 +1020,8 @@ fn scroll_device_kind() -> Option<&'static str> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(CloseGate::default())
         .manage(OpenGate::default())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {

@@ -26,4 +26,4 @@ npx tsc --noEmit
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Prérequis Windows : Rust (toolchain MSVC) + WebView2 (fourni avec Windows 11). Le build local n'est pas obligatoire : le workflow GitHub `.github/workflows/build.yml` produit déjà les installeurs `.exe` / `.msi` via `gh workflow run build.yml` ou un tag `v*`.
+Prérequis Windows : Rust (toolchain MSVC) + WebView2 (fourni avec Windows 11). Le build local n'est pas obligatoire : le workflow GitHub `.github/workflows/build.yml` produit les installeurs `.dmg` / `.exe` / `.msi` et les publie dans le dépôt public `Frybex/notinger-releases` via un tag `v*` (ou `gh workflow run build.yml` pour un build sans publication). Les mises à jour automatiques s'appuient sur `latest.json` du même dépôt et sur la clé `~/.tauri/notinger-updater.key` (secret GitHub `TAURI_SIGNING_PRIVATE_KEY`). Avant une publication : `npm run bump <x.y.z>`, puis commiter, taguer (`git tag vX.Y.Z`) et pousser le tag.

@@ -63,6 +63,13 @@ const shapes: Record<string, ReactNode> = {
       <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
     </>
   ),
+  download: (
+    <>
+      <path d="M12 3.5v10" />
+      <path d="m8 10 4 4 4-4" />
+      <path d="M4.5 17v1.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V17" />
+    </>
+  ),
   check: <path d="m5 12.5 4.5 4.5L19 7" />,
   point: <circle cx="12" cy="12" r="5.5" fill="currentColor" stroke="none" />,
   pointHollow: <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth={2} />,

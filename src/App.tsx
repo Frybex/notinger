@@ -16,6 +16,7 @@ import Icon from './components/Icon'
 import ImageMenu from './components/ImageMenu'
 import PdfOverlay from './components/PdfOverlay'
 import PointTool from './components/PointTool'
+import UpdateNotice from './components/UpdateNotice'
 import { attachWheelZoom, setWheelDevice } from './lib/wheelZoom'
 import { attachToolLock } from './lib/toolLock'
 import { SnapAssist } from './lib/snap'
@@ -901,6 +902,10 @@ export default function App() {
         onFolderColor={(path, color) => void setFolderColor(path, color)}
         onMoveDrawing={(id, folder) => void moveDrawing(id, folder)}
         onOpenDir={() => void api.openLibraryDir()}
+      />
+      <UpdateNotice
+        onBeforeInstall={flushPending}
+        onError={(message) => setError(message)}
       />
       {saveToastKey > 0 ? (
         <div
