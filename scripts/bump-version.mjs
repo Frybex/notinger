@@ -2,7 +2,7 @@
 // Met à jour la version de l'application partout où elle est déclarée :
 // package.json, package-lock.json, src-tauri/Cargo.toml et
 // src-tauri/tauri.conf.json (c'est cette dernière que l'updater compare au
-// latest.json publié sur Frybex/notinger-releases).
+// latest.json publié sur Frybex/notinger).
 // Usage : npm run bump 1.0.1
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
