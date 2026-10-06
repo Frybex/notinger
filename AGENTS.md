@@ -30,19 +30,20 @@ Prérequis Windows : Rust (toolchain MSVC) + WebView2 (fourni avec Windows 11). 
 
 ## Processus de release
 
-Une release est déclenchée par un tag `v*` : la CI construit macOS (Apple Silicon) et Windows, signe les artefacts de mise à jour et publie le tout dans le dépôt **public** [`Frybex/notinger-releases`](https://github.com/Frybex/notinger-releases) (installeurs + `latest.json`). Le code source reste dans le dépôt privé.
+Une release est déclenchée par un tag `v*` : la CI construit macOS (Apple Silicon) et Windows, signe les artefacts de mise à jour et publie le tout dans ce même dépôt **public** `Frybex/notinger` (installeurs + `latest.json`).
 
 1. Vérifier le code : `npx tsc --noEmit` et `cargo test --manifest-path src-tauri/Cargo.toml`.
 2. Bumper la version partout d'un coup : `npm run bump 1.0.1` (met à jour `package.json`, `package-lock.json`, `Cargo.toml` et `tauri.conf.json` ; c'est cette dernière que les apps installées comparent au `latest.json`).
 3. Commiter et pousser `main` : `git commit -am "Notinger 1.0.1" && git push origin main`.
 4. Taguer puis pousser le tag : `git tag v1.0.1 && git push origin v1.0.1` → déclenche la CI.
-5. Suivre la CI (`gh run watch`) et vérifier la release publiée : `gh release view v1.0.1 --repo Frybex/notinger-releases`.
+5. Suivre la CI (`gh run watch`) et vérifier la release publiée : `gh release view v1.0.1 --repo Frybex/notinger`.
 
 Lancer le workflow sans tag (`gh workflow run build.yml`) produit seulement un build de vérification, sans publication.
 
-Secrets nécessaires dans `Frybex/notinger` :
+Secret nécessaire dans `Frybex/notinger` :
 
 - `TAURI_SIGNING_PRIVATE_KEY` : contenu de `~/.tauri/notinger-updater.key` (signature des artefacts de mise à jour). La clé publique correspondante est dans `tauri.conf.json` → `plugins.updater.pubkey`. Ne jamais régénérer la paire sans publier d'abord une version embarquant la nouvelle clé publique, sinon les apps installées refusent les mises à jour. Conserver une sauvegarde de la clé privée : sans elle, plus aucune mise à jour ne peut être signée.
-- `RELEASES_TOKEN` : PAT autorisé à écrire dans `Frybex/notinger-releases` (le `GITHUB_TOKEN` par défaut n'a accès qu'au dépôt où tourne la CI).
 
-Côté app, `src/components/UpdateNotice.tsx` interroge `https://github.com/Frybex/notinger-releases/releases/latest/download/latest.json` au démarrage (après 4 s, échec silencieux si hors ligne) et propose la mise à jour en un clic, avec enregistrement du travail en cours avant redémarrage.
+Migration : les versions ≤ 1.0.2 interrogent encore `Frybex/notinger-releases`. Ce dépôt est conservé pour elles ; les nouvelles versions interrogent `Frybex/notinger`.
+
+Côté app, `src/components/UpdateNotice.tsx` interroge `https://github.com/Frybex/notinger/releases/latest/download/latest.json` au démarrage (après 4 s, échec silencieux si hors ligne) et propose la mise à jour en un clic, avec enregistrement du travail en cours avant redémarrage.
