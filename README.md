@@ -10,9 +10,12 @@ Construit avec [Excalidraw](https://github.com/excalidraw/excalidraw) (MIT, Copy
 2. Télécharge l'installeur correspondant à ta machine :
    - **macOS (Apple Silicon)** : `Notinger_x.y.z_aarch64.dmg`
    - **Windows** : `Notinger_x.y.z_x64-setup.exe`
-3. L'application n'étant pas signée, le premier lancement demande une confirmation :
-   - macOS : clic droit sur l'application → **Ouvrir**.
+3. L'application n'étant pas signée avec un certificat Apple, le premier lancement demande une confirmation :
+   - macOS 15 (Sequoia) et ultérieur : **Réglages Système → Confidentialité et sécurité → Ouvrir quand même**.
+   - macOS 14 (Sonoma) et antérieur : clic droit sur l'application → **Ouvrir**.
    - Windows : **Informations complémentaires** → **Exécuter quand même**.
+
+   Si macOS affiche que l'application est « endommagée » (cas d'un ancien DMG non signé), lancer `xattr -cr /Applications/Notinger.app` dans le Terminal, puis rouvrir l'application.
 
 Ensuite, Notinger vérifie les mises à jour au démarrage (via `latest.json` publié dans ce même dépôt) et les installe en un clic, directement depuis l'application.
 

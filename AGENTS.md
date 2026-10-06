@@ -47,3 +47,5 @@ Secret nécessaire dans `Frybex/notinger` :
 Migration : les versions ≤ 1.0.2 interrogent encore `Frybex/notinger-releases`. Ce dépôt est conservé pour elles ; les nouvelles versions interrogent `Frybex/notinger`.
 
 Côté app, `src/components/UpdateNotice.tsx` interroge `https://github.com/Frybex/notinger/releases/latest/download/latest.json` au démarrage (après 4 s, échec silencieux si hors ligne) et propose la mise à jour en un clic, avec enregistrement du travail en cours avant redémarrage.
+
+Signature macOS : `src-tauri/tauri.conf.json` → `bundle.macOS.signingIdentity: "-"` signe l'app en ad-hoc. Sans elle, un DMG téléchargé est mis en quarantaine par Gatekeeper et macOS affiche « l'application est endommagée » sur Apple Silicon. Ne pas retirer cette ligne ; la signature ad-hoc n'empêche pas macOS de demander une validation manuelle au premier lancement (voir README).

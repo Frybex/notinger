@@ -63,7 +63,12 @@ jobs:
           args: ${{ matrix.args }}
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Notinger {0}', github.ref_name) || '' }}
-          releaseBody: 'Installeurs macOS (.dmg, Apple Silicon) et Windows (.exe / .msi). Non signés : au premier lancement, clic droit → Ouvrir (macOS) ou Informations complémentaires → Exécuter quand même (Windows). Les mises à jour suivantes s''installent depuis l''application (latest.json).'
+          releaseBody: >-
+            Installeurs macOS (.dmg, Apple Silicon) et Windows (.exe / .msi).
+            L'app macOS est signée ad-hoc (pas de certificat Apple) : au premier lancement, ouvrir Réglages Système → Confidentialité et sécurité → Ouvrir quand même (macOS 15+), ou clic droit → Ouvrir sur macOS 14 et antérieur.
+            Si macOS affiche que l'application est « endommagée », exécuter `xattr -cr /Applications/Notinger.app` dans le Terminal, puis rouvrir l'application.
+            Windows : Informations complémentaires → Exécuter quand même.
+            Les mises à jour suivantes s'installent depuis l'application (latest.json).
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true

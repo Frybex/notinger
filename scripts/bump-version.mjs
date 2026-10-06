@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Met à jour la version de l'application partout où elle est déclarée :
-// package.json, package-lock.json, src-tauri/Cargo.toml et
-// src-tauri/tauri.conf.json (c'est cette dernière que l'updater compare au
+// package.json, package-lock.json, src-tauri/Cargo.toml, src-tauri/Cargo.lock
+// et src-tauri/tauri.conf.json (c'est cette dernière que l'updater compare au
 // latest.json publié sur Frybex/notinger).
 // Usage : npm run bump 1.0.1
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -39,12 +39,23 @@ writeJson(lockPath, lock)
 // [package] ; celles des dépendances utilisent des contraintes (ex. "2").
 const cargoPath = join(root, 'src-tauri', 'Cargo.toml')
 const cargo = readFileSync(cargoPath, 'utf8')
-const cargoNext = cargo.replace(/^version = "[^"]*"$/m, `version = "${version}"`)
-if (cargoNext === cargo) {
+const cargoVersion = /^version = "[^"]*"$/m
+if (!cargoVersion.test(cargo)) {
   console.error('version introuvable dans src-tauri/Cargo.toml')
   process.exit(1)
 }
-writeFileSync(cargoPath, cargoNext)
+writeFileSync(cargoPath, cargo.replace(cargoVersion, `version = "${version}"`))
+
+// Cargo.lock référence aussi la version de l'app, dans le bloc
+// [[package]] name = "notinger" (sans quoi la CI resynchronise en silence).
+const cargoLockPath = join(root, 'src-tauri', 'Cargo.lock')
+const cargoLock = readFileSync(cargoLockPath, 'utf8')
+const cargoLockVersion = /(\[\[package\]\]\nname = "notinger"\nversion = ")[^"]*(")/
+if (!cargoLockVersion.test(cargoLock)) {
+  console.error('version de notinger introuvable dans src-tauri/Cargo.lock')
+  process.exit(1)
+}
+writeFileSync(cargoLockPath, cargoLock.replace(cargoLockVersion, `$1${version}$2`))
 
 const confPath = join(root, 'src-tauri', 'tauri.conf.json')
 const conf = readJson(confPath)
