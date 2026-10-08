@@ -22,9 +22,17 @@ npm run app:install
 ## Vérifications avant d'installer
 
 ```sh
-npx tsc --noEmit
+npm run check       # tsc-rs, rapide (~0,6 s contre ~3 s)
+npm run check:ref   # tsc officiel, référence avant release
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+- `check` utilise `tsc-rs` (`devDependencies`, port Rust de `tsc`, paquet npm `tsc-rs`, binaire `tsc-rs`). `check:ref` utilise `typescript` officiel. Le `build` (`tsc --noEmit && vite build`) et la release restent sur `tsc` : `tsc-rs` est expérimental (0.x) et se déclare en TS 7.1-dev.
+- Les deux doivent être verts. En cas de désaccord, `tsc` a raison.
+- `tsconfig.json` doit rester compatible TS 7 : pas de `baseUrl` (supprimé en TS 7), `paths` en relatif (`"@/*": ["./src/*"]`). `tsc-rs` refuse le `baseUrl`, `tsc` 5.x accepte les deux formes.
+- `tsc-rs` n'existe que pour Linux x64 et macOS arm64, pas Windows : ne jamais en dépendre dans la CI Windows ni dans `app:install`, uniquement en vérification locale.
+
+Mises à jour `tsc-rs` : `npm view tsc-rs version` pour voir, `npm i -D tsc-rs@latest` pour monter. `npx tsc-rs --version` affiche la version TS portée (7.1.0-dev), pas la version npm (`npm list tsc-rs`). Avant de monter `typescript` au-delà de la version portée, comparer `check` vs `check:ref`. Releases à suivre : https://github.com/pingdotgg/ts-rust/releases.
 
 Prérequis Windows : Rust (toolchain MSVC) + WebView2 (fourni avec Windows 11). Le build local n'est pas obligatoire : le workflow GitHub `.github/workflows/build.yml` produit les installeurs `.dmg` / `.exe` / `.msi` (voir « Processus de release »).
 
@@ -32,7 +40,7 @@ Prérequis Windows : Rust (toolchain MSVC) + WebView2 (fourni avec Windows 11). 
 
 Une release est déclenchée par un tag `v*` : la CI construit macOS (Apple Silicon) et Windows, signe les artefacts de mise à jour et publie le tout dans ce même dépôt **public** `Frybex/notinger` (installeurs + `latest.json`).
 
-1. Vérifier le code : `npx tsc --noEmit` et `cargo test --manifest-path src-tauri/Cargo.toml`.
+1. Vérifier le code : `npm run check` et `npm run check:ref` (les deux verts, `tsc` fait foi) et `cargo test --manifest-path src-tauri/Cargo.toml`.
 2. Bumper la version partout d'un coup : `npm run bump 1.0.1` (met à jour `package.json`, `package-lock.json`, `Cargo.toml` et `tauri.conf.json` ; c'est cette dernière que les apps installées comparent au `latest.json`).
 3. Commiter et pousser `main` : `git commit -am "Notinger 1.0.1" && git push origin main`.
 4. Taguer puis pousser le tag : `git tag v1.0.1 && git push origin v1.0.1` → déclenche la CI.

@@ -1,6 +1,6 @@
 [package]
 name = "notinger"
-version = "1.0.4"
+version = "1.0.5"
 description = "Schémas et notes visuelles, 100% locaux"
 authors = ["Maxence Bastin"]
 edition = "2021"

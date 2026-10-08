@@ -1,11 +1,13 @@
 {
   "name": "notinger",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Schémas et notes visuelles 100% locales, propulsés par Excalidraw.",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "vite",
+    "check": "tsc-rs --noEmit",
+    "check:ref": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -31,6 +33,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^6.1.1",
+    "tsc-rs": "^0.1.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.2"
   }

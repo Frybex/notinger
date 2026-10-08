@@ -19,6 +19,7 @@ import PointTool from './components/PointTool'
 import UpdateNotice from './components/UpdateNotice'
 import { attachWheelZoom, setWheelDevice } from './lib/wheelZoom'
 import { attachToolLock } from './lib/toolLock'
+import { attachTextLists } from './lib/textLists'
 import { fitContentInViewport } from './lib/fit'
 import { SnapAssist } from './lib/snap'
 import { StyleMemory } from './lib/styleMemory'
@@ -196,6 +197,12 @@ export default function App() {
     const host = canvasRef.current
     if (!host) return
     return attachWheelZoom(host)
+  }, [])
+
+  useEffect(() => {
+    const host = canvasRef.current
+    if (!host) return
+    return attachTextLists(host)
   }, [])
 
   useEffect(() => {
