@@ -39,6 +39,9 @@ const BULLET_RE = /^(\s*)([-*•])[ \t]+(.*)$/
 const ORDERED_RE = /^(\s*)(\d{1,9})([.)])[ \t]+(.*)$/
 const BARE_BULLET_RE = /^(\s*)([-*•])[ \t]*$/
 const BARE_ORDERED_RE = /^(\s*)(\d{1,9})([.)])[ \t]*$/
+// Tiret en fin de ligne après du texte (`une idée - `) : le tiret n'est pas
+// en début de ligne mais finit quand même par lancer une liste.
+const MID_DASH_RE = /^(\s*)(.*\S)([ \t]+)([-*•])([ \t]*)$/
 
 function parseListMarker(line: string): ListMarker | null {
   const bullet = line.match(BULLET_RE)
@@ -113,8 +116,12 @@ export function computeEnterEdit(
 ): TextEdit | null {
   if (selectionStart !== selectionEnd) return null
   const { start, end } = lineBounds(value, selectionStart)
-  const marker = parseListMarker(value.slice(start, end))
-  if (!marker) return null
+  const line = value.slice(start, end)
+  const marker = parseListMarker(line)
+  if (!marker) {
+    // Pas un item : peut-être un tiret après du texte (`une idée - `).
+    return midLineDashEdit(value, start, end, selectionStart, line)
+  }
   const cursorInLine = selectionStart - start
   // Curseur dans le préfixe (`-` lui-même) : insertion simple, sans liste.
   // Pour un tiret seul (`-`), le préfixe canonique (`- `) n'existe pas encore :
@@ -165,6 +172,34 @@ function previousLineIsFullItem(value: string, lineStart: number): boolean {
   const prevStart = value.lastIndexOf('\n', prevEnd - 1) + 1
   const prev = parseListMarker(value.slice(prevStart, prevEnd))
   return !!prev && prev.after.trim() !== ''
+}
+
+/**
+ * `une idée - ` + Entrée : le tiret est détaché sur une nouvelle ligne et
+ * devient un item de liste (`une idée` / `- `), le curseur prêt à écrire.
+ * Ne se déclenche que si le curseur est sur le tiret ou après (pas au milieu
+ * du texte) ; les listes numérotées (`version 2. `) sont exclues pour ne pas
+ * transformer du texte ordinaire en liste.
+ */
+function midLineDashEdit(
+  value: string,
+  start: number,
+  end: number,
+  selectionStart: number,
+  line: string
+): TextEdit | null {
+  const match = line.match(MID_DASH_RE)
+  if (!match) return null
+  const [, indent, text, gap, dash] = match as unknown as [string, string, string, string, string]
+  if (selectionStart - start < indent.length + text.length + gap.length) return null
+  const head = value.slice(0, start)
+  const tail = value.slice(end)
+  const first = `${indent}${text}`
+  const second = `${indent}${dash} `
+  return {
+    value: `${head}${first}\n${second}${tail}`,
+    cursor: start + first.length + 1 + second.length
+  }
 }
 
 /** Efface le tiret d'un coup quand le curseur est juste après. Sinon `null`. */
