@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
 import Icon from './Icon'
-import type { DrawingMeta, FolderInfo, SaveState } from '../lib/api'
+import type { DrawingMeta, FolderInfo } from '../lib/api'
 import type { UpdaterStatus } from '../lib/useUpdater'
 import { version as appVersion } from '../../package.json'
 import { revealLabel, shortcuts } from '../lib/platform'
@@ -12,7 +12,6 @@ type SidebarProps = {
   folders: FolderInfo[]
   currentId: string | null
   libraryDir: string
-  saveState: SaveState
   collapsed: boolean
   theme: 'light' | 'dark'
   newFolderSignal: number
@@ -34,7 +33,6 @@ type SidebarProps = {
   onRevealFolder: (path: string) => void
   onFolderColor: (path: string, color: string | null) => void
   onMoveDrawing: (id: string, folder: string) => void
-  onOpenDir: () => void
 }
 
 type EditTarget = {
@@ -86,13 +84,6 @@ function formatDate(timestamp: number) {
   })
 }
 
-function saveLabel(state: SaveState) {
-  if (state === 'saving') return 'Enregistrement…'
-  if (state === 'saved') return 'Enregistré'
-  if (state === 'error') return "Échec de l'enregistrement"
-  return 'Enregistrement automatique'
-}
-
 function updateCheckLabel(status: UpdaterStatus) {
   if (status === 'checking') return 'Vérification…'
   if (status === 'up-to-date') return 'À jour'
@@ -104,8 +95,6 @@ export default function Sidebar({
   metas,
   folders,
   currentId,
-  libraryDir,
-  saveState,
   collapsed,
   theme,
   newFolderSignal,
@@ -126,8 +115,7 @@ export default function Sidebar({
   onDeleteFolder,
   onRevealFolder,
   onFolderColor,
-  onMoveDrawing,
-  onOpenDir
+  onMoveDrawing
 }: SidebarProps) {
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<EditTarget | null>(null)
@@ -594,18 +582,6 @@ export default function Sidebar({
 
       <footer className="sidebar-footer">
         <div className="footer-row">
-          <div className="save-state" data-state={saveState}>
-            <span className="status-dot" />
-            {saveLabel(saveState)}
-          </div>
-          <button type="button" className="link" onClick={onOpenDir} title={libraryDir}>
-            Ouvrir le dossier
-          </button>
-        </div>
-        <div className="footer-row">
-          <span className="app-version" title="Version installée">
-            v{appVersion}
-          </span>
           {isTauri() ? (
             <button
               type="button"
@@ -630,6 +606,9 @@ export default function Sidebar({
               {updateCheckLabel(updateStatus)}
             </button>
           ) : null}
+          <span className="app-version" title="Version installée">
+            v{appVersion}
+          </span>
         </div>
       </footer>
 

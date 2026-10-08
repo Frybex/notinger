@@ -144,7 +144,7 @@ export default function App() {
   const [scene, setScene] = useState<ExcalidrawInitialDataState | null>(null)
   const [renderKey, setRenderKey] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [, setSaveState] = useState<SaveState>('idle')
   const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode)
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>('light')
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -877,7 +877,6 @@ export default function App() {
         folders={folders}
         currentId={currentId}
         libraryDir={libraryDir}
-        saveState={saveState}
         collapsed={!sidebarOpen}
         theme={theme}
         newFolderSignal={newFolderSignal}
@@ -899,7 +898,6 @@ export default function App() {
         onRevealFolder={(path) => void api.revealFolder(path)}
         onFolderColor={(path, color) => void setFolderColor(path, color)}
         onMoveDrawing={(id, folder) => void moveDrawing(id, folder)}
-        onOpenDir={() => void api.openLibraryDir()}
       />
       <UpdateNotice
         update={updater.update}

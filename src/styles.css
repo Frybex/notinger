@@ -740,7 +740,7 @@ button {
 .footer-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -764,36 +764,6 @@ button {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-.save-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #4caf7d;
-}
-
-.save-state[data-state='saving'] .status-dot {
-  background: #e6a23c;
-  animation: pulse 1s ease-in-out infinite;
-}
-
-.save-state[data-state='error'] .status-dot {
-  background: var(--danger);
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
   }
 }
 
