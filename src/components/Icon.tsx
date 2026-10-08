@@ -71,6 +71,12 @@ const shapes: Record<string, ReactNode> = {
     </>
   ),
   check: <path d="m5 12.5 4.5 4.5L19 7" />,
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 6.3" />
+      <path d="M20 4.5V11h-6.5" />
+    </>
+  ),
   point: <circle cx="12" cy="12" r="5.5" fill="currentColor" stroke="none" />,
   pointHollow: <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth={2} />,
   x: <path d="M6 6l12 12M18 6 6 18" />,

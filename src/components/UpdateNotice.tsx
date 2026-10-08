@@ -1,79 +1,25 @@
-import { useEffect, useState } from 'react'
-import { isTauri } from '@tauri-apps/api/core'
-import { relaunch } from '@tauri-apps/plugin-process'
-import { check, type Update } from '@tauri-apps/plugin-updater'
+import type { Update } from '@tauri-apps/plugin-updater'
 import Icon from './Icon'
-
-type Status = 'available' | 'downloading' | 'installing'
+import type { UpdaterStatus } from '../lib/useUpdater'
 
 type UpdateNoticeProps = {
-  /** Enregistre le travail en cours avant le redémarrage. */
-  onBeforeInstall: () => Promise<unknown>
-  onError: (message: string) => void
+  update: Update | null
+  dismissed: boolean
+  status: UpdaterStatus
+  progress: number | null
+  onInstall: () => void
+  onDismiss: () => void
 }
 
-const CHECK_DELAY_MS = 4000
-
-/**
- * Vérifie discrètement les mises à jour au démarrage (latest.json publié sur
- * Frybex/notinger-releases) et propose de les installer en un clic.
- */
-export default function UpdateNotice({ onBeforeInstall, onError }: UpdateNoticeProps) {
-  const [update, setUpdate] = useState<Update | null>(null)
-  const [dismissed, setDismissed] = useState(false)
-  const [status, setStatus] = useState<Status>('available')
-  const [progress, setProgress] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (!isTauri()) return
-    let cancelled = false
-    const timer = window.setTimeout(() => {
-      void check()
-        .then((found) => {
-          if (!cancelled && found) setUpdate(found)
-        })
-        .catch(() => {
-          // Hors ligne ou service injoignable : nouvel essai au prochain lancement.
-        })
-    }, CHECK_DELAY_MS)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
-  }, [])
-
-  const install = async () => {
-    if (!update) return
-    setStatus('downloading')
-    setProgress(null)
-    try {
-      await onBeforeInstall()
-    } catch {
-      // Un souci d'enregistrement ne doit pas bloquer la mise à jour.
-    }
-    try {
-      let total = 0
-      let received = 0
-      await update.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          total = event.data.contentLength ?? 0
-        } else if (event.event === 'Progress') {
-          received += event.data.chunkLength
-          if (total > 0) {
-            setProgress(Math.min(100, Math.round((received / total) * 100)))
-          }
-        } else if (event.event === 'Finished') {
-          setStatus('installing')
-        }
-      })
-      await relaunch()
-    } catch (cause) {
-      setStatus('available')
-      setProgress(null)
-      onError(`Mise à jour impossible : ${String(cause)}`)
-    }
-  }
-
+/** Bandeau de mise à jour : la logique vit dans `useUpdater`, ici l'affichage. */
+export default function UpdateNotice({
+  update,
+  dismissed,
+  status,
+  progress,
+  onInstall,
+  onDismiss
+}: UpdateNoticeProps) {
   if (!update || dismissed) return null
 
   return (
@@ -95,14 +41,14 @@ export default function UpdateNotice({ onBeforeInstall, onError }: UpdateNoticeP
       </div>
       {status === 'available' ? (
         <>
-          <button type="button" className="primary" onClick={() => void install()}>
+          <button type="button" className="primary" onClick={onInstall}>
             Installer
           </button>
           <button
             type="button"
             className="ghost icon-only"
             title="Plus tard"
-            onClick={() => setDismissed(true)}
+            onClick={onDismiss}
           >
             <Icon name="x" size={13} />
           </button>

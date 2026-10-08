@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react'
+import { isTauri } from '@tauri-apps/api/core'
 import Icon from './Icon'
 import type { DrawingMeta, FolderInfo, SaveState } from '../lib/api'
+import type { UpdaterStatus } from '../lib/useUpdater'
+import { version as appVersion } from '../../package.json'
 import { revealLabel, shortcuts } from '../lib/platform'
 
 type SidebarProps = {
@@ -13,6 +16,8 @@ type SidebarProps = {
   collapsed: boolean
   theme: 'light' | 'dark'
   newFolderSignal: number
+  updateStatus: UpdaterStatus
+  onCheckUpdates: () => void
   onToggle: () => void
   onToggleTheme: () => void
   onSelect: (id: string) => void
@@ -88,6 +93,13 @@ function saveLabel(state: SaveState) {
   return 'Enregistrement automatique'
 }
 
+function updateCheckLabel(status: UpdaterStatus) {
+  if (status === 'checking') return 'Vérification…'
+  if (status === 'up-to-date') return 'À jour'
+  if (status === 'downloading' || status === 'installing') return 'Téléchargement…'
+  return 'Vérifier les mises à jour'
+}
+
 export default function Sidebar({
   metas,
   folders,
@@ -97,6 +109,8 @@ export default function Sidebar({
   collapsed,
   theme,
   newFolderSignal,
+  updateStatus,
+  onCheckUpdates,
   onToggle,
   onToggleTheme,
   onSelect,
@@ -579,13 +593,44 @@ export default function Sidebar({
       </div>
 
       <footer className="sidebar-footer">
-        <div className="save-state" data-state={saveState}>
-          <span className="status-dot" />
-          {saveLabel(saveState)}
+        <div className="footer-row">
+          <div className="save-state" data-state={saveState}>
+            <span className="status-dot" />
+            {saveLabel(saveState)}
+          </div>
+          <button type="button" className="link" onClick={onOpenDir} title={libraryDir}>
+            Ouvrir le dossier
+          </button>
         </div>
-        <button type="button" className="link" onClick={onOpenDir} title={libraryDir}>
-          Ouvrir le dossier
-        </button>
+        <div className="footer-row">
+          <span className="app-version" title="Version installée">
+            v{appVersion}
+          </span>
+          {isTauri() ? (
+            <button
+              type="button"
+              className="link update-check"
+              onClick={onCheckUpdates}
+              disabled={
+                updateStatus === 'checking' ||
+                updateStatus === 'downloading' ||
+                updateStatus === 'installing'
+              }
+              title="Interroger le serveur de mises à jour"
+            >
+              {updateStatus === 'checking' ? (
+                <span className="spinning">
+                  <Icon name="refresh" size={11} />
+                </span>
+              ) : updateStatus === 'up-to-date' ? (
+                <Icon name="check" size={11} />
+              ) : (
+                <Icon name="refresh" size={11} />
+              )}
+              {updateCheckLabel(updateStatus)}
+            </button>
+          ) : null}
+        </div>
       </footer>
 
       {contextMenu && (contextMeta || contextFolder) ? (

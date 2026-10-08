@@ -20,6 +20,7 @@ import UpdateNotice from './components/UpdateNotice'
 import { attachWheelZoom, setWheelDevice } from './lib/wheelZoom'
 import { attachToolLock } from './lib/toolLock'
 import { attachTextLists } from './lib/textLists'
+import { useUpdater } from './lib/useUpdater'
 import { fitContentInViewport } from './lib/fit'
 import { SnapAssist } from './lib/snap'
 import { StyleMemory } from './lib/styleMemory'
@@ -427,6 +428,11 @@ export default function App() {
     }
     await doSave({ thumb: true })
   }, [doSave])
+
+  const updater = useUpdater({
+    onBeforeInstall: flushPending,
+    onError: (message) => setError(message)
+  })
 
   const renameFolder = useCallback(
     async (path: string, newName: string) => {
@@ -875,6 +881,8 @@ export default function App() {
         collapsed={!sidebarOpen}
         theme={theme}
         newFolderSignal={newFolderSignal}
+        updateStatus={updater.status}
+        onCheckUpdates={() => void updater.checkNow()}
         onToggle={toggleSidebar}
         onToggleTheme={toggleTheme}
         onSelect={(id) => void openDrawing(id)}
@@ -894,8 +902,12 @@ export default function App() {
         onOpenDir={() => void api.openLibraryDir()}
       />
       <UpdateNotice
-        onBeforeInstall={flushPending}
-        onError={(message) => setError(message)}
+        update={updater.update}
+        dismissed={updater.dismissed}
+        status={updater.status}
+        progress={updater.progress}
+        onInstall={() => void updater.install()}
+        onDismiss={updater.dismiss}
       />
       {saveToastKey > 0 ? (
         <div
