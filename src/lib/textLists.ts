@@ -42,6 +42,9 @@ const BARE_ORDERED_RE = /^(\s*)(\d{1,9})([.)])[ \t]*$/
 // Tiret en fin de ligne après du texte (`une idée - `) : le tiret n'est pas
 // en début de ligne mais finit quand même par lancer une liste.
 const MID_DASH_RE = /^(\s*)(.*\S)([ \t]+)([-*•])([ \t]*)$/
+// Numéro après deux-points (`mes idées : 1. `) : seul cas où un numéro en
+// milieu de ligne lance une liste (`page 12. ` reste du texte ordinaire).
+const MID_ORDERED_COLON_RE = /^(\s*)(.+?)(\s*)(:)[ \t]+(\d{1,9})([.)])([ \t]*)$/
 
 function parseListMarker(line: string): ListMarker | null {
   const bullet = line.match(BULLET_RE)
@@ -119,8 +122,9 @@ export function computeEnterEdit(
   const line = value.slice(start, end)
   const marker = parseListMarker(line)
   if (!marker) {
-    // Pas un item : peut-être un tiret après du texte (`une idée - `).
-    return midLineDashEdit(value, start, end, selectionStart, line)
+    // Pas un item : peut-être un tiret ou un numéro après du texte
+    // (`une idée - `, `mes idées : 1. `).
+    return midLineEdit(value, start, end, selectionStart, line)
   }
   const cursorInLine = selectionStart - start
   // Curseur dans le préfixe (`-` lui-même) : insertion simple, sans liste.
@@ -175,29 +179,65 @@ function previousLineIsFullItem(value: string, lineStart: number): boolean {
 }
 
 /**
- * `une idée - ` + Entrée : le tiret est détaché sur une nouvelle ligne et
- * devient un item de liste (`une idée` / `- `), le curseur prêt à écrire.
- * Ne se déclenche que si le curseur est sur le tiret ou après (pas au milieu
- * du texte) ; les listes numérotées (`version 2. `) sont exclues pour ne pas
- * transformer du texte ordinaire en liste.
+ * Marqueur en milieu de ligne : `une idée - ` ou `mes idées : 1. ` + Entrée
+ * détache le marqueur sur une nouvelle ligne qui devient un item de liste,
+ * le curseur prêt à écrire. Ne se déclenche que si le curseur est sur le
+ * marqueur ou après (pas au milieu du texte).
  */
-function midLineDashEdit(
+function midLineEdit(
   value: string,
   start: number,
   end: number,
   selectionStart: number,
   line: string
 ): TextEdit | null {
-  const match = line.match(MID_DASH_RE)
-  if (!match) return null
-  const [, indent, text, gap, dash] = match as unknown as [string, string, string, string, string]
-  if (selectionStart - start < indent.length + text.length + gap.length) return null
-  const head = value.slice(0, start)
-  const tail = value.slice(end)
-  const first = `${indent}${text}`
-  const second = `${indent}${dash} `
+  const dash = line.match(MID_DASH_RE)
+  if (dash) {
+    const [, indent, text, gap, marker] = dash as unknown as [
+      string,
+      string,
+      string,
+      string,
+      string
+    ]
+    if (selectionStart - start < indent.length + text.length + gap.length) return null
+    return splitLine(value, start, end, `${indent}${text}`, `${indent}${marker} `)
+  }
+  const ordered = line.match(MID_ORDERED_COLON_RE)
+  if (ordered) {
+    const [, indent, text, gap, colon, digits, delimiter] = ordered as unknown as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string
+    ]
+    const numberStart = indent.length + text.length + gap.length + colon.length
+    if (selectionStart - start < numberStart) return null
+    // Le numéro tapé est conservé pour le premier item, la suite s'incrémente.
+    return splitLine(
+      value,
+      start,
+      end,
+      `${indent}${text}${gap}${colon}`,
+      `${indent}${digits}${delimiter} `
+    )
+  }
+  return null
+}
+
+/** Coupe la ligne en deux : texte au-dessus, item de liste en dessous. */
+function splitLine(
+  value: string,
+  start: number,
+  end: number,
+  first: string,
+  second: string
+): TextEdit {
   return {
-    value: `${head}${first}\n${second}${tail}`,
+    value: `${value.slice(0, start)}${first}\n${second}${value.slice(end)}`,
     cursor: start + first.length + 1 + second.length
   }
 }
